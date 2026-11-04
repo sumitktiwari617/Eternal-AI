@@ -605,6 +605,20 @@ def get_ai_accuracy_trend():
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
+    @app.get("/style.css")
+    def serve_style_css():
+        css_path = FRONTEND_DIR / "style.css"
+        if css_path.exists():
+            return FileResponse(str(css_path), media_type="text/css")
+        return {"error": "style.css not found"}
+
+    @app.get("/app.js")
+    def serve_app_js():
+        js_path = FRONTEND_DIR / "app.js"
+        if js_path.exists():
+            return FileResponse(str(js_path), media_type="application/javascript")
+        return {"error": "app.js not found"}
+
     @app.get("/")
     def serve_index():
         index_path = FRONTEND_DIR / "index.html"

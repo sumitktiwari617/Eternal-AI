@@ -485,3 +485,4 @@ def test_zero_order_placement_symbols_exist():
                         violations.append(f"{filepath.relative_to(BASE_DIR)} contains '{term}'")
 
     assert len(violations) == 0, f"Found forbidden order placement symbols: {violations}"
+

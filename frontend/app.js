@@ -54,6 +54,13 @@ document.addEventListener("DOMContentLoaded", () => {
       fetchMarketData();
     }
   }, 4000);
+
+  // Friendly onboarding toast if hosted on Vercel/cloud without saved backend URL
+  if (!RENDER_BACKEND_URL && !window.location.hostname.includes("localhost") && !window.location.hostname.includes("127.0.0.1")) {
+    setTimeout(() => {
+      showToast("⚡ Hosted on Vercel: Open the 'Settings' tab to enter your Render Backend URL.", 7000);
+    }, 1200);
+  }
 });
 
 // --- Tab Navigation ---
