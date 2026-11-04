@@ -59,10 +59,20 @@ def start_ai_server_if_needed(host: str = "127.0.0.1", port: int = 8001):
             cmd,
             cwd=str(BASE_DIR),
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
             close_fds=True
         )
     else:
-        subprocess.Popen(cmd, cwd=str(BASE_DIR), start_new_session=True)
+        subprocess.Popen(
+            cmd,
+            cwd=str(BASE_DIR),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True
+        )
 
     # Wait for server to boot
     for _ in range(15):
@@ -92,12 +102,72 @@ def get_existing_ngrok_url() -> Optional[str]:
     return None
 
 
+DEFAULT_ADMIN_KEY = "admin_aa3797c179a6236618316e26"
+DEFAULT_AI_TOKEN = "ai_2abc92e5c7993432bb3b002a"
+_cf_process = None
+
+
+def get_or_download_cloudflared() -> Optional[Path]:
+    """Retrieves or auto-downloads standalone Cloudflare quick tunnel binary."""
+    user_dir = Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / "AppData" / "Local" / "cloudflared"
+    user_dir.mkdir(parents=True, exist_ok=True)
+    cf_exe = user_dir / "cloudflared.exe"
+    if cf_exe.exists() and cf_exe.stat().st_size > 1000000:
+        return cf_exe
+
+    try:
+        import urllib.request
+        url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+        logger.info("Downloading standalone zero-config Cloudflare tunnel...")
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=40.0) as resp:
+            data = resp.read()
+        with open(cf_exe, "wb") as f:
+            f.write(data)
+        logger.info("Cloudflare tunnel binary ready.")
+        return cf_exe
+    except Exception as e:
+        logger.warning(f"Failed to auto-download cloudflared: {e}")
+        return None
+
+
+def start_cloudflare_tunnel(port: int = 8001) -> Optional[str]:
+    """Starts zero-config accountless Cloudflare tunnel to local port."""
+    global _cf_process
+    cf_exe = get_or_download_cloudflared()
+    if not cf_exe or not cf_exe.exists():
+        return None
+
+    try:
+        logger.info(f"Opening zero-config Cloudflare Tunnel to http://127.0.0.1:{port}...")
+        proc = subprocess.Popen(
+            [str(cf_exe), "tunnel", "--url", f"http://127.0.0.1:{port}"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        _cf_process = proc
+
+        start = time.time()
+        while time.time() - start < 15:
+            line = proc.stderr.readline()
+            if line:
+                match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line)
+                if match:
+                    url = match.group(0)
+                    logger.info(f"SUCCESS: Zero-config Cloudflare Tunnel active: {url}")
+                    return url
+    except Exception as e:
+        logger.warning(f"Cloudflare tunnel error: {e}")
+    return None
+
+
 def start_tunnel(port: int = 8001) -> Optional[str]:
     """
     Attempts to establish or detect a public HTTPS tunnel to local AI port:
     1. Detects running ngrok on port 4040
-    2. Uses pyngrok if installed
-    3. Detects cloudflared
+    2. Uses pyngrok if auth token is configured
+    3. Auto-falls back to zero-config Cloudflare Tunnel (no account required)
     """
     # 1. Check existing ngrok
     existing_url = get_existing_ngrok_url()
@@ -105,21 +175,26 @@ def start_tunnel(port: int = 8001) -> Optional[str]:
         logger.info(f"Detected existing ngrok tunnel: {existing_url}")
         return existing_url
 
-    # 2. Try pyngrok
-    try:
-        from pyngrok import ngrok, conf
-        if settings.ngrok_authtoken:
+    # 2. Try pyngrok if token is provided
+    if getattr(settings, "ngrok_authtoken", None):
+        try:
+            from pyngrok import ngrok, conf
             ngrok.set_auth_token(settings.ngrok_authtoken.strip())
-        tunnel = ngrok.connect(port, "http")
-        url = tunnel.public_url
-        if url.startswith("http://"):
-            url = url.replace("http://", "https://")
-        logger.info(f"Created pyngrok tunnel: {url}")
-        return url
-    except Exception as e:
-        logger.debug(f"pyngrok attempt: {e}")
+            tunnel = ngrok.connect(port, "http")
+            url = tunnel.public_url
+            if url.startswith("http://"):
+                url = url.replace("http://", "https://")
+            logger.info(f"Created pyngrok tunnel: {url}")
+            return url
+        except Exception as e:
+            logger.debug(f"pyngrok attempt: {e}")
 
-    # 3. Check if explicit AI_MODEL_SERVICE_URL or manual tunnel is provided
+    # 3. Seamless Zero-Config Cloudflare Tunnel (100% Free, No login, No auth token needed)
+    cf_url = start_cloudflare_tunnel(port)
+    if cf_url:
+        return cf_url
+
+    # 4. Check if explicit AI_MODEL_SERVICE_URL or manual tunnel is provided
     configured_url = settings.ai_model_service_url
     if configured_url and (configured_url.startswith("https://") or "ngrok" in configured_url or "cloudflare" in configured_url):
         logger.info(f"Using pre-configured tunnel URL from settings: {configured_url}")
@@ -134,18 +209,19 @@ def register_tunnel_with_backend(backend_url: str, tunnel_url: str, secret_token
     """
     import urllib.request
     endpoint = f"{backend_url.rstrip('/')}/api/ai/register-tunnel"
+    token = secret_token or getattr(settings, "ai_secret_token", None) or DEFAULT_AI_TOKEN
+    admin_key = getattr(settings, "admin_api_key", None) or DEFAULT_ADMIN_KEY
+
     payload = {
         "tunnel_url": tunnel_url,
-        "secret_token": secret_token or ""
+        "secret_token": token
     }
     headers = {
         "Content-Type": "application/json",
-        "User-Agent": "ETERNAL-Tunnel-Manager/2.0"
+        "User-Agent": "ETERNAL-Tunnel-Manager/2.0",
+        "X-Admin-Key": admin_key,
+        "X-AI-Secret-Token": token
     }
-    if secret_token:
-        headers["X-AI-Secret-Token"] = secret_token
-    if getattr(settings, "admin_api_key", None):
-        headers["X-Admin-Key"] = settings.admin_api_key.strip()
 
     try:
         req = urllib.request.Request(
@@ -154,7 +230,7 @@ def register_tunnel_with_backend(backend_url: str, tunnel_url: str, secret_token
             headers=headers,
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=8.0) as resp:
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
             if resp.status == 200:
                 body = json.loads(resp.read().decode("utf-8"))
                 logger.info(f"SUCCESS: Tunnel registered with {backend_url} -> {body.get('message')}")
@@ -239,6 +315,11 @@ def run_tunnel_manager():
 
         except KeyboardInterrupt:
             logger.info("Tunnel manager shutting down by user request.")
+            if _cf_process:
+                try:
+                    _cf_process.terminate()
+                except Exception:
+                    pass
             break
         except Exception as e:
             logger.debug(f"Heartbeat error: {e}")
