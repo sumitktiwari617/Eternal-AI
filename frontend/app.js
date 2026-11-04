@@ -1168,13 +1168,15 @@ async function checkLocalAIHealth(interactive = false) {
     "Accept": "application/json",
     "ngrok-skip-browser-warning": "1"
   };
-  if (AI_SECRET_TOKEN) headers["X-AI-Secret-Token"] = AI_SECRET_TOKEN;
+  const token = localStorage.getItem("eternal_ai_token") || AI_SECRET_TOKEN || DEFAULT_AI_TOKEN;
+  if (token) headers["X-AI-Secret-Token"] = token;
 
   if (teleEndpoint) teleEndpoint.textContent = LOCAL_AI_BASE;
 
+  // 1. Try local laptop tunnel first
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2500);
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
     const res = await fetch(`${LOCAL_AI_BASE}/health`, {
       signal: controller.signal,
       headers: headers,
@@ -1185,34 +1187,62 @@ async function checkLocalAIHealth(interactive = false) {
     if (res.ok) {
       const info = await res.json();
       if (badge) {
-        badge.textContent = "● AI Tunnel Online";
+        badge.textContent = "● Laptop AI Tunnel Online";
         badge.className = "badge font-mono text-emerald";
         badge.style.borderColor = "#10b981";
       }
       const accStr = (info.accuracy != null) ? `${info.accuracy}%` : "N/A";
       if (teleStatus) {
-        teleStatus.textContent = `Online (${accStr} acc)`;
+        teleStatus.textContent = `Online (Laptop: ${accStr})`;
         teleStatus.className = "text-emerald";
       }
       if (interactive) {
-        showToast(`Connected to AI Model Tunnel! Accuracy: ${accStr}`);
+        showToast(`Connected to Laptop AI Model! Accuracy: ${accStr}`);
       }
       return;
     }
   } catch (err) {
-    // Tunnel or local server offline
+    // Localhost / laptop tunnel unreachable
   }
 
+  // 2. Fall back to Cloud Backend Embedded AI Model
+  try {
+    const cloudRes = await fetch(`${getApiBase()}/api/ai/predict`);
+    if (cloudRes.ok) {
+      const cloudData = await cloudRes.json();
+      if (badge) {
+        badge.textContent = "● AI Active (Cloud Model)";
+        badge.className = "badge font-mono text-cyan";
+        badge.style.borderColor = "#06b6d4";
+      }
+      if (teleStatus) {
+        const accStr = cloudData.model_accuracy != null ? `${cloudData.model_accuracy}%` : "Ready";
+        teleStatus.textContent = `Active (Cloud AI Model: ${accStr})`;
+        teleStatus.className = "text-cyan";
+      }
+      if (interactive) {
+        showToast("Connected to Cloud AI Model on Render!");
+      }
+      return;
+    }
+  } catch (cloudErr) {
+    // Cloud AI also unreachable
+  }
+
+  // 3. Both unreachable
   if (badge) {
-    badge.textContent = "○ AI Tunnel Offline";
+    badge.textContent = "○ AI Offline";
     badge.className = "badge font-mono text-muted";
     badge.style.borderColor = "rgba(255,255,255,0.2)";
   }
   if (teleStatus) {
-    teleStatus.textContent = "Offline (Run start_ai_tunnel.bat)";
+    teleStatus.textContent = "Offline (Run start.bat on laptop or check Render)";
     teleStatus.className = "text-amber";
   }
   if (interactive) {
+    showToast(`AI Model is currently unreachable.`, true);
+  }
+}
     showToast(`Cannot reach AI Tunnel at ${LOCAL_AI_BASE}. Run start_ai_tunnel.bat!`, true);
   }
 }

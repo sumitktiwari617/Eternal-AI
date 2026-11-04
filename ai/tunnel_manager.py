@@ -144,6 +144,8 @@ def register_tunnel_with_backend(backend_url: str, tunnel_url: str, secret_token
     }
     if secret_token:
         headers["X-AI-Secret-Token"] = secret_token
+    if getattr(settings, "admin_api_key", None):
+        headers["X-Admin-Key"] = settings.admin_api_key.strip()
 
     try:
         req = urllib.request.Request(
