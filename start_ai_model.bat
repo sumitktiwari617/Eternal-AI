@@ -11,28 +11,14 @@ echo =================================================================
 echo.
 
 :: 1. Detect Python
-set "PY_CMD=python"
-where python >nul 2>nul
-if %ERRORLEVEL% NEQ 0 (
-    where py >nul 2>nul
-    if %ERRORLEVEL% EQU 0 (
-        set "PY_CMD=py"
-    ) else if exist "C:\Python314\python.exe" (
-        set "PY_CMD=C:\Python314\python.exe"
-    ) else if exist "C:\Python312\python.exe" (
-        set "PY_CMD=C:\Python312\python.exe"
-    ) else if exist "C:\Python311\python.exe" (
-        set "PY_CMD=C:\Python311\python.exe"
-    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
-        set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
-    ) else (
-        color 0C
-        echo [ERROR] Python was not found in your system PATH!
-        echo Please install Python 3.10+ from https://www.python.org/downloads/
-        echo Make sure to check 'Add Python to PATH' during installation.
-        pause
-        exit /b 1
-    )
+if exist "C:\Python314\python.exe" (
+    set "PY_CMD=C:\Python314\python.exe"
+) else if exist "C:\Python312\python.exe" (
+    set "PY_CMD=C:\Python312\python.exe"
+) else if exist "C:\Python311\python.exe" (
+    set "PY_CMD=C:\Python311\python.exe"
+) else (
+    set "PY_CMD=python"
 )
 
 :: 2. Show Active Environment
@@ -45,6 +31,7 @@ echo       - Localhost Port:    8001
 echo.
 
 :: 3. Check Initial Training
+if not defined PY_CMD if exist "C:\Python314\python.exe" (set "PY_CMD=C:\Python314\python.exe") else (set "PY_CMD=python")
 echo [2/3] Verifying Historical Training and Model Weights...
 %PY_CMD% -c "from ai.auto_learner import auto_learner; res = auto_learner.ensure_initial_training(); acc = res.get('accuracy'); hacc = res.get('high_conf_accuracy'); print('       - AI Status: Ready on Localhost | Signal Win Rate: ' + (str(acc) + '%% (Balanced OOS)' if acc is not None else 'N/A') + ' | High-Conf Conviction: ' + (str(hacc) + '%%' if hacc is not None else 'N/A'))"
 if %ERRORLEVEL% NEQ 0 (
@@ -55,6 +42,7 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 
 :: 4. Start Localhost AI Model Microservice
+if not defined PY_CMD if exist "C:\Python314\python.exe" (set "PY_CMD=C:\Python314\python.exe") else (set "PY_CMD=python")
 echo [3/3] Launching Local AI Model Server on Port 8001...
 echo =================================================================
 echo   * LOCAL AI MODEL IS NOW ONLINE AND READY!
