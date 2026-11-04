@@ -97,6 +97,8 @@ class AutonomousLearner:
             return {
                 "status": "READY",
                 "accuracy": ai_model.last_accuracy,
+                "high_conf_accuracy": ai_model.high_conf_accuracy,
+                "regime_accuracy": ai_model.regime_accuracy,
                 "samples": ai_model.total_samples,
                 "message": "AI Model loaded and operational."
             }
@@ -119,6 +121,8 @@ class AutonomousLearner:
         history.append({
             "date": today_str,
             "accuracy": res["accuracy"],
+            "high_conf_accuracy": res.get("high_conf_accuracy"),
+            "regime_accuracy": res.get("regime_accuracy"),
             "samples": res["samples"],
             "source": "measured",
             "event": "Initial Walk-Forward Training Complete"
@@ -192,6 +196,8 @@ class AutonomousLearner:
             history.append({
                 "date": today_str,
                 "accuracy": res["accuracy"],
+                "high_conf_accuracy": res.get("high_conf_accuracy"),
+                "regime_accuracy": res.get("regime_accuracy"),
                 "samples": res["samples"],
                 "source": "measured",
                 "event": f"Daily Auto-Learning Update (Trained on {res['samples']} candles)"

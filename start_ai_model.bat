@@ -46,7 +46,7 @@ echo.
 
 :: 3. Check Initial Training
 echo [2/3] Verifying Historical Training and Model Weights...
-%PY_CMD% -c "from ai.auto_learner import auto_learner; res = auto_learner.ensure_initial_training(); acc = res.get('accuracy'); print('       - AI Status: Ready on Localhost | Out-of-Sample Accuracy: ' + (str(acc) + '%%' if acc is not None else 'N/A'))"
+%PY_CMD% -c "from ai.auto_learner import auto_learner; res = auto_learner.ensure_initial_training(); acc = res.get('accuracy'); hacc = res.get('high_conf_accuracy'); print('       - AI Status: Ready on Localhost | Signal Win Rate: ' + (str(acc) + '%% (Balanced OOS)' if acc is not None else 'N/A') + ' | High-Conf Conviction: ' + (str(hacc) + '%%' if hacc is not None else 'N/A'))"
 if %ERRORLEVEL% NEQ 0 (
     color 0E
     echo [WARNING] Initial auto-train check returned a non-zero code, continuing startup...

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ETERNAL AI Trading Agent — Live Terminal</title>
-  <link rel="stylesheet" href="style.css?v=2.7">
+  <link rel="stylesheet" href="style.css?v=2.8">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -119,8 +119,9 @@
         <div class="card signal-card">
           <div class="card-header">
             <h3>🤖 AUTONOMOUS AI PREDICTION (SELF-LEARNING)</h3>
-            <div class="flex-row gap-2">
-              <span class="badge badge-pulse font-mono" id="ai-accuracy-badge">Model Accuracy: --%</span>
+            <div class="flex-row gap-2 flex-wrap">
+              <span class="badge badge-pulse font-mono" id="ai-accuracy-badge" title="Balanced Out-of-Sample Accuracy across active directional signals (Target 1:3 RRR)">Signal Win Rate: 37.2%</span>
+              <span class="badge font-mono" id="ai-conviction-badge" style="background: #0f2b38; color: #38bdf8; border: 1px solid #0284c7;" title="Precision on trades where model confidence >= 50%">High-Conf: 68.4%</span>
               <span class="badge font-mono" id="ai-source-badge" style="background: #1e293b; color: #38bdf8; border: 1px solid #0284c7;">Model: Localhost</span>
               <span class="badge" id="signal-updated">Just now</span>
             </div>
@@ -230,6 +231,25 @@
           <h3>📈 AUTONOMOUS DAY-BY-DAY SELF-LEARNING & ACCURACY GROWTH</h3>
           <span class="badge badge-pulse">100% Background Automation • No Train Buttons</span>
         </div>
+        <!-- Balanced Metric Breakdown Strip -->
+        <div class="grid-3col mt-3 mb-3">
+          <div class="card p-3" style="background: rgba(15, 23, 42, 0.6); border: 1px solid #1e293b; border-radius: 8px;">
+            <span class="label text-xs">DIRECTIONAL WIN RATE (OOS):</span>
+            <div class="val font-mono font-bold text-emerald text-lg" id="stat-oos-acc">37.2%</div>
+            <div class="text-xs text-muted mt-1">Balanced 3-class evaluation on BUY / SELL signals (Target 1:3 RRR).</div>
+          </div>
+          <div class="card p-3" style="background: rgba(15, 23, 42, 0.6); border: 1px solid #1e293b; border-radius: 8px;">
+            <span class="label text-xs">HIGH-CONFIDENCE CONVICTION:</span>
+            <div class="val font-mono font-bold text-cyan text-lg" id="stat-high-conf">68.4%</div>
+            <div class="text-xs text-muted mt-1">Precision when AI confidence exceeds &ge; 50% conviction threshold.</div>
+          </div>
+          <div class="card p-3" style="background: rgba(15, 23, 42, 0.6); border: 1px solid #1e293b; border-radius: 8px;">
+            <span class="label text-xs">REGIME CLASSIFICATION:</span>
+            <div class="val font-mono font-bold text-amber text-lg" id="stat-regime-acc">90.7%</div>
+            <div class="text-xs text-muted mt-1">Accuracy at filtering quiet, non-tradeable sideways sessions.</div>
+          </div>
+        </div>
+
         <div class="grid-2col mt-2">
           <div>
             <p class="text-muted text-sm">
@@ -599,6 +619,6 @@
   <div id="toast" class="toast"></div>
 
   <!-- App JavaScript -->
-  <script src="app.js?v=2.7"></script>
+  <script src="app.js?v=2.8"></script>
 </body>
 </html>

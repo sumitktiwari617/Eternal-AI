@@ -55,7 +55,7 @@ echo.
 
 :: 3. Verify Model and Training
 echo [2/3] Checking AI Model Weights and Calibration...
-%PY_CMD% -c "from ai.auto_learner import auto_learner; res = auto_learner.ensure_initial_training(); acc = res.get('accuracy'); print('       - AI Status: Ready | Out-of-Sample Accuracy: ' + (str(acc) + '%%' if acc is not None else 'N/A'))"
+%PY_CMD% -c "from ai.auto_learner import auto_learner; res = auto_learner.ensure_initial_training(); acc = res.get('accuracy'); hacc = res.get('high_conf_accuracy'); print('       - AI Status: Ready | Signal Win Rate: ' + (str(acc) + '%% (Balanced OOS)' if acc is not None else 'N/A') + ' | High-Conf Conviction: ' + (str(hacc) + '%%' if hacc is not None else 'N/A'))"
 echo.
 
 :: 4. Launch Portable Tunnel Manager and Handshake Coordinator
