@@ -72,7 +72,7 @@ echo      4. Keeps Render awake with continuous heartbeats.
 echo.
 echo   [TIP] If you need to add your free ngrok token:
 echo         Add NGROK_AUTHTOKEN=your_token in .env or run:
-echo         ngrok config add-authtoken <your-token>
+echo         ngrok config add-authtoken YOUR_TOKEN_HERE
 echo.
 echo   Press Ctrl+C to terminate.
 echo =================================================================

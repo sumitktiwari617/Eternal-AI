@@ -60,7 +60,7 @@ echo   [4] Run Verification Test Suite (pytest)
 echo       * Runs comprehensive safety, truthfulness, and deployment tests.
 echo.
 echo   [5] Run Single Autonomous AI Prediction (CLI)
-echo       * Evaluates live market conditions and outputs signal & ATR brackets.
+echo       * Evaluates live market conditions and outputs signal and ATR brackets.
 echo.
 echo   [6] Exit
 echo.
