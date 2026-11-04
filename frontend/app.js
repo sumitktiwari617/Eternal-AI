@@ -1,6 +1,7 @@
 // ETERNAL AI Trading Agent — Frontend Controller
 // Multi-Tier Deployment: Vercel Frontend + Render Backend + Localhost/Tunnel AI Model
-let RENDER_BACKEND_URL = localStorage.getItem("eternal_backend_url") || "";
+const DEFAULT_BACKEND_URL = "https://eternal-ai-3oat.onrender.com";
+let RENDER_BACKEND_URL = localStorage.getItem("eternal_backend_url") || DEFAULT_BACKEND_URL;
 let LOCAL_AI_BASE = localStorage.getItem("eternal_local_ai_url") || "http://127.0.0.1:8001";
 let AI_SECRET_TOKEN = localStorage.getItem("eternal_ai_token") || "";
 
@@ -54,13 +55,6 @@ document.addEventListener("DOMContentLoaded", () => {
       fetchMarketData();
     }
   }, 4000);
-
-  // Friendly onboarding toast if hosted on Vercel/cloud without saved backend URL
-  if (!RENDER_BACKEND_URL && !window.location.hostname.includes("localhost") && !window.location.hostname.includes("127.0.0.1")) {
-    setTimeout(() => {
-      showToast("⚡ Hosted on Vercel: Open the 'Settings' tab to enter your Render Backend URL.", 7000);
-    }, 1200);
-  }
 });
 
 // --- Tab Navigation ---
