@@ -478,9 +478,24 @@ def register_ai_tunnel(req: TunnelRegistrationRequest, request: Request):
 @app.get("/api/ai/tunnel-status")
 def get_ai_tunnel_status():
     """Returns current active AI tunnel service URL and handshake configuration."""
+    tunnel_alive = False
+    if settings.ai_model_service_url:
+        try:
+            import requests
+            resp = requests.get(
+                f"{settings.ai_model_service_url.rstrip('/')}/health",
+                headers=get_ai_service_headers(),
+                timeout=1.5
+            )
+            tunnel_alive = (resp.status_code == 200)
+        except Exception:
+            tunnel_alive = False
+
     return {
         "success": True,
-        "active_ai_service_url": settings.ai_model_service_url,
+        "tunnel_registered": bool(settings.ai_model_service_url),
+        "tunnel_alive": tunnel_alive,
+        "active_ai_service_url": settings.ai_model_service_url if tunnel_alive else None,
         "has_secret_token": bool(settings.ai_secret_token),
         "ai_tunnel_skip_warning": settings.ai_tunnel_skip_warning,
     }

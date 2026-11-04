@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ETERNAL AI Trading Agent — Live Terminal</title>
-  <link rel="stylesheet" href="style.css?v=2.9">
+  <link rel="stylesheet" href="style.css?v=3.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -122,7 +122,7 @@
             <div class="flex-row gap-2 flex-wrap">
               <span class="badge badge-pulse font-mono" id="ai-accuracy-badge" title="Balanced Out-of-Sample Accuracy across active directional signals (Target 1:3 RRR)">Signal Win Rate: 37.2%</span>
               <span class="badge font-mono" id="ai-conviction-badge" style="background: #0f2b38; color: #38bdf8; border: 1px solid #0284c7;" title="Precision on trades where model confidence >= 50%">High-Conf: 68.4%</span>
-              <span class="badge font-mono" id="ai-source-badge" style="background: #1e293b; color: #38bdf8; border: 1px solid #0284c7;">Model: Localhost</span>
+              <span class="badge font-mono" id="ai-source-badge" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4);">Tunnel: Checking...</span>
               <span class="badge" id="signal-updated">Just now</span>
             </div>
           </div>
@@ -569,7 +569,7 @@
           <div class="grid-3col">
             <div>Render Backend: <span id="tele-backend-status" class="text-white">--</span></div>
             <div>AI Model Endpoint: <span id="tele-ai-endpoint" class="text-cyan">http://127.0.0.1:8001</span></div>
-            <div>AI Service Status: <span id="tele-ai-status" class="text-emerald">Ready</span></div>
+            <div>AI Service Status: <span id="tele-ai-status" class="text-amber">Offline (Tunnel inactive)</span></div>
           </div>
         </div>
       </div>
@@ -619,6 +619,6 @@
   <div id="toast" class="toast"></div>
 
   <!-- App JavaScript -->
-  <script src="app.js?v=2.9"></script>
+  <script src="app.js?v=3.0"></script>
 </body>
 </html>

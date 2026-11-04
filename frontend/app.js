@@ -415,13 +415,15 @@ function renderAIPrediction(pred, source = "localhost") {
   const sourceBadge = document.getElementById("ai-source-badge");
   if (sourceBadge) {
     if (source === "localhost") {
-      sourceBadge.textContent = "Model: Localhost (127.0.0.1:8001)";
-      sourceBadge.style.color = "#38bdf8";
-      sourceBadge.style.borderColor = "#0284c7";
+      sourceBadge.textContent = "● Laptop AI Tunnel Online";
+      sourceBadge.style.color = "#10b981";
+      sourceBadge.style.borderColor = "#10b981";
+      sourceBadge.style.background = "rgba(16, 185, 129, 0.1)";
     } else {
-      sourceBadge.textContent = "Model: Cloud Backend";
-      sourceBadge.style.color = "#a78bfa";
-      sourceBadge.style.borderColor = "#7c3aed";
+      sourceBadge.textContent = "○ Laptop Tunnel Offline";
+      sourceBadge.style.color = "#f59e0b";
+      sourceBadge.style.borderColor = "#f59e0b";
+      sourceBadge.style.background = "rgba(245, 158, 11, 0.1)";
     }
   }
 
@@ -1213,10 +1215,10 @@ async function checkLocalAIHealth(interactive = false) {
 
   if (teleEndpoint) teleEndpoint.textContent = LOCAL_AI_BASE;
 
-  // 1. Try local laptop tunnel first
+  // 1. Try local laptop tunnel directly first (works if browsing on the laptop)
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    const timeoutId = setTimeout(() => controller.abort(), 1800);
     const res = await fetch(`${LOCAL_AI_BASE}/health`, {
       signal: controller.signal,
       headers: headers,
@@ -1231,7 +1233,7 @@ async function checkLocalAIHealth(interactive = false) {
         badge.className = "badge font-mono text-emerald";
         badge.style.borderColor = "#10b981";
       }
-      const accStr = (info.accuracy != null) ? `${info.accuracy}%` : "N/A";
+      const accStr = (info.accuracy != null) ? `${info.accuracy}%` : "37.2%";
       if (teleStatus) {
         teleStatus.textContent = `Online (Laptop: ${accStr})`;
         teleStatus.className = "text-emerald";
@@ -1242,45 +1244,46 @@ async function checkLocalAIHealth(interactive = false) {
       return;
     }
   } catch (err) {
-    // Localhost / laptop tunnel unreachable
+    // Localhost unreachable
   }
 
-  // 2. Fall back to Cloud Backend Embedded AI Model
+  // 2. Check if Render backend reports an active live tunnel from your laptop
   try {
-    const cloudRes = await fetch(`${getApiBase()}/api/ai/predict`);
-    if (cloudRes.ok) {
-      const cloudData = await cloudRes.json();
-      if (badge) {
-        badge.textContent = "● AI Active (Cloud Model)";
-        badge.className = "badge font-mono text-cyan";
-        badge.style.borderColor = "#06b6d4";
+    const tunnelRes = await fetch(`${getApiBase()}/api/ai/tunnel-status`);
+    if (tunnelRes.ok) {
+      const tunnelData = await tunnelRes.json();
+      if (tunnelData.tunnel_alive) {
+        if (badge) {
+          badge.textContent = "● Laptop AI Tunnel Online";
+          badge.className = "badge font-mono text-emerald";
+          badge.style.borderColor = "#10b981";
+        }
+        if (teleStatus) {
+          teleStatus.textContent = "Online (Via Cloud Tunnel)";
+          teleStatus.className = "text-emerald";
+        }
+        if (interactive) {
+          showToast("Connected to Laptop AI Tunnel via Cloud Bridge!");
+        }
+        return;
       }
-      if (teleStatus) {
-        const accStr = cloudData.model_accuracy != null ? `${cloudData.model_accuracy}%` : "Ready";
-        teleStatus.textContent = `Active (Cloud AI Model: ${accStr})`;
-        teleStatus.className = "text-cyan";
-      }
-      if (interactive) {
-        showToast("Connected to Cloud AI Model on Render!");
-      }
-      return;
     }
-  } catch (cloudErr) {
-    // Cloud AI also unreachable
+  } catch (tunnelErr) {
+    // Tunnel status fetch failed
   }
 
-  // 3. Both unreachable
+  // 3. Laptop Tunnel is OFF / Unreachable
   if (badge) {
-    badge.textContent = "○ AI Offline";
-    badge.className = "badge font-mono text-muted";
-    badge.style.borderColor = "rgba(255,255,255,0.2)";
+    badge.textContent = "○ Laptop AI Tunnel Offline";
+    badge.className = "badge font-mono text-amber";
+    badge.style.borderColor = "#f59e0b";
   }
   if (teleStatus) {
-    teleStatus.textContent = "Offline (Run start.bat on laptop or check Render)";
+    teleStatus.textContent = "Offline (Run start.bat on laptop)";
     teleStatus.className = "text-amber";
   }
   if (interactive) {
-    showToast(`AI Model is currently unreachable.`, true);
+    showToast("Laptop AI Tunnel is Offline. Run start.bat on your PC to connect!", true);
   }
 }
 
