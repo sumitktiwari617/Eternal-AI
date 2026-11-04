@@ -1,17 +1,20 @@
 // ETERNAL AI Trading Agent — Frontend Controller
 // Multi-Tier Deployment: Vercel Frontend + Render Backend + Localhost/Tunnel AI Model
 const DEFAULT_BACKEND_URL = "https://eternal-ai-3oat.onrender.com";
+const DEFAULT_ADMIN_KEY = "admin_aa3797c179a6236618316e26";
+const DEFAULT_AI_TOKEN = "ai_2abc92e5c7993432bb3b002a";
+
 let RENDER_BACKEND_URL = localStorage.getItem("eternal_backend_url") || DEFAULT_BACKEND_URL;
 let LOCAL_AI_BASE = localStorage.getItem("eternal_local_ai_url") || "http://127.0.0.1:8001";
-let AI_SECRET_TOKEN = localStorage.getItem("eternal_ai_token") || "";
+let AI_SECRET_TOKEN = localStorage.getItem("eternal_ai_token") || DEFAULT_AI_TOKEN;
 
 function getAuthHeaders(customHeaders = {}) {
   const headers = { ...customHeaders };
-  const adminKey = sessionStorage.getItem("eternal_admin_key");
+  const adminKey = sessionStorage.getItem("eternal_admin_key") || DEFAULT_ADMIN_KEY;
   if (adminKey && adminKey.trim()) {
     headers["X-Admin-Key"] = adminKey.trim();
   }
-  const aiToken = localStorage.getItem("eternal_ai_token") || AI_SECRET_TOKEN;
+  const aiToken = localStorage.getItem("eternal_ai_token") || AI_SECRET_TOKEN || DEFAULT_AI_TOKEN;
   if (aiToken && aiToken.trim()) {
     headers["X-AI-Secret-Token"] = aiToken.trim();
   }
@@ -1068,7 +1071,7 @@ function initLocalAIModelConnection() {
 
   const adminKeyInput = document.getElementById("cfg-admin-api-key");
   if (adminKeyInput) {
-    adminKeyInput.value = sessionStorage.getItem("eternal_admin_key") || "";
+    adminKeyInput.value = sessionStorage.getItem("eternal_admin_key") || DEFAULT_ADMIN_KEY;
   }
 
   document.getElementById("btn-save-admin-key")?.addEventListener("click", () => {
