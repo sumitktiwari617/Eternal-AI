@@ -701,8 +701,10 @@ function drawCanvasChart(candles) {
       const mainEl = document.querySelector(".main-content");
       containerWidth = (tabPane && tabPane.clientWidth > 0) ? tabPane.clientWidth : (mainEl && mainEl.clientWidth > 0 ? mainEl.clientWidth - 40 : window.innerWidth - 60);
     }
-    const width = Math.max(320, containerWidth - 16);
-    const height = 380;
+    const isMobile = window.innerWidth <= 768;
+    const isSmall = window.innerWidth <= 480;
+    const width = Math.max(260, containerWidth - 16);
+    const height = isSmall ? 280 : (isMobile ? 320 : 380);
     const dpr = window.devicePixelRatio || 1;
 
     canvas.style.width = `${width}px`;

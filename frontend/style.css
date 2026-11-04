@@ -593,3 +593,309 @@ body {
   padding: 0.5rem;
 }
 
+/* ==========================================================================
+   MOBILE & TABLET RESPONSIVE STYLES
+   Optimized for iPhones, Android smartphones, and tablets
+   ========================================================================== */
+
+/* Prevent accidental horizontal overflow */
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* Base touch improvements */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+img, svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* --- Tablet Breakpoint (max-width: 1024px) --- */
+@media (max-width: 1024px) {
+  .main-content {
+    padding: 1.25rem;
+  }
+
+  .grid-2col {
+    grid-template-columns: 1fr;
+  }
+
+  .grid-4col {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* --- Mobile Breakpoint (max-width: 768px) --- */
+@media (max-width: 768px) {
+  .header {
+    padding: 0.75rem 1rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .logo-area {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .logo-title {
+    font-size: 1.15rem;
+  }
+
+  .telemetry-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    gap: 0.6rem;
+    width: 100%;
+    background-color: rgba(0, 0, 0, 0.25);
+    padding: 0.6rem 0.8rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+  }
+
+  .telemetry-item {
+    min-width: 0;
+  }
+
+  .telemetry-item .label {
+    font-size: 0.58rem;
+  }
+
+  .telemetry-item .val {
+    font-size: 0.85rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Horizontal Navigation Tabs with Momentum Scroll */
+  .nav-tabs {
+    padding: 0 0.75rem;
+    gap: 0.35rem;
+    white-space: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .nav-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-btn {
+    padding: 0.75rem 0.85rem;
+    font-size: 0.825rem;
+    flex-shrink: 0;
+  }
+
+  /* Main Container */
+  .main-content {
+    padding: 0.75rem 0.6rem;
+  }
+
+  .card {
+    padding: 1rem 0.85rem;
+    border-radius: 8px;
+  }
+
+  .card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .card-header h3 {
+    font-size: 0.825rem;
+  }
+
+  .card-header .flex-row {
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    width: 100%;
+  }
+
+  /* Control Actions: Touch-friendly grid */
+  .control-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .control-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .control-actions .btn {
+    width: 100%;
+    min-height: 42px;
+    padding: 0.6rem 0.5rem;
+    font-size: 0.8rem;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .control-actions #btn-stop {
+    grid-column: span 2;
+  }
+
+  .control-extra {
+    width: 100%;
+  }
+
+  .control-extra .switch-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .control-extra .input-select {
+    width: 100%;
+  }
+
+  /* Copilot Banner Card */
+  #copilot-banner-card #copilot-action-directive {
+    font-size: 1.05rem !important;
+    word-break: break-word;
+  }
+
+  #copilot-banner-card .grid-4col {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 0.6rem;
+  }
+
+  /* Signal Card */
+  .signal-display {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+    gap: 0.75rem;
+  }
+
+  .signal-badge {
+    width: 100%;
+    min-width: 0;
+    font-size: 1.6rem;
+    padding: 0.75rem 1rem;
+  }
+
+  .confidence-bar-wrapper {
+    max-width: 100%;
+    margin-left: 0;
+    margin-top: 0.35rem;
+  }
+
+  .probability-pills {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  /* Quote Card */
+  .quote-display {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .price-big {
+    font-size: 1.9rem;
+  }
+
+  .quote-stats .grid-3col {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Form & Settings Elements */
+  .flex-row {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .input-text, .input-select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  #cfg-ai-secret-token, #kotak-mpin-input {
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  .flex-row button {
+    flex: 1 1 calc(50% - 0.5rem);
+    min-height: 40px;
+    justify-content: center;
+  }
+
+  /* Tables */
+  .table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table {
+    min-width: 620px;
+  }
+
+  /* Canvas Charts */
+  .chart-canvas-container {
+    min-height: 280px;
+    padding: 0.25rem;
+  }
+
+  #price-chart {
+    height: 280px !important;
+  }
+
+  /* Floating Toast */
+  .toast {
+    left: 1rem;
+    right: 1rem;
+    bottom: 1rem;
+    max-width: none;
+    transform: translateY(120px);
+    text-align: center;
+  }
+}
+
+/* --- Small Mobile Phones (max-width: 480px) --- */
+@media (max-width: 480px) {
+  .logo-subtitle {
+    display: none;
+  }
+
+  .telemetry-bar {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  #copilot-banner-card .grid-4col {
+    grid-template-columns: 1fr !important;
+  }
+
+  .price-big {
+    font-size: 1.65rem;
+  }
+
+  .indicator-value {
+    font-size: 1.2rem;
+  }
+
+  .metric-val {
+    font-size: 1.35rem;
+  }
+
+  .control-actions .btn {
+    font-size: 0.75rem;
+    padding: 0.5rem 0.4rem;
+  }
+}
+
+
