@@ -1,4 +1,7 @@
 import asyncio
+import hmac
+import ipaddress
+from urllib.parse import urlparse
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional
@@ -22,7 +25,7 @@ from execution.logger import get_recent_logs, clear_logs
 from core.backtester import run_backtest
 from core.rsi_engine import run_pure_rsi_backtest
 from core.indicators import calculate_indicators
-from data.fetcher import fetch_historical_candles, fetch_latest_quote
+from data.fetcher import fetch_historical_candles, fetch_latest_quote, DataUnavailableError
 from core.risk_manager import calculate_trade_brackets
 
 # Import AI Engine components
@@ -50,7 +53,7 @@ async def background_monitoring_loop():
 async def lifespan(app: FastAPI):
     global _poller_task, _learner_task
 
-    # 1. Autonomous 6-month training check on boot
+    # 1. Autonomous training check on boot
     try:
         auto_learner.ensure_initial_training()
     except Exception as e:
@@ -76,7 +79,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="ETERNAL AI Trading Agent API",
-    description="High-performance, modular algorithmic trading backend for NSE equities and derivatives.",
+    description="High-performance, modular algorithmic trading advisory backend for NSE equities.",
     version="2.0.0",
     lifespan=lifespan,
 )
@@ -97,20 +100,90 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
-# Enable CORS for Vercel, Localhost & Cloud Deployments
+# Enable strict CORS without wildcard when credentials are true
 cors_origins_list = (
     [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
-    if settings.cors_origins != "*" else ["*"]
+    if settings.cors_origins and settings.cors_origins != "*"
+    else ["http://localhost:8000", "http://127.0.0.1:8000", "http://localhost:3000"]
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins_list,
-    allow_origin_regex=r"https://.*\.vercel\.app" if cors_origins_list != ["*"] else None,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# --- Security & Authentication Helpers ---
+
+def verify_admin_key(request: Request):
+    """
+    Guards mutating endpoints with X-Admin-Key.
+    Fails closed: if ADMIN_API_KEY is unset, returns 503 unless
+    DEV_MODE=true and request is from localhost.
+    """
+    admin_key = settings.admin_api_key
+    if admin_key:
+        provided = request.headers.get("X-Admin-Key") or request.headers.get("x-admin-key")
+        if not provided or not hmac.compare_digest(provided.strip(), admin_key.strip()):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Unauthorized: Missing or invalid X-Admin-Key header."
+            )
+        return True
+
+    # If ADMIN_API_KEY is unset in environment:
+    client_host = request.client.host if request.client else ""
+    is_localhost = client_host in ("127.0.0.1", "localhost", "::1", "testclient")
+    if settings.dev_mode and is_localhost:
+        return True
+
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Admin access unavailable: ADMIN_API_KEY is not configured on the server."
+    )
+
+
+def validate_tunnel_url(url_str: str) -> str:
+    """Validates public HTTPS tunnel URLs and rejects private/link-local ranges."""
+    clean_url = url_str.strip().rstrip("/")
+    if clean_url in ("http://127.0.0.1:8001", "http://localhost:8001"):
+        return clean_url
+
+    try:
+        parsed = urlparse(clean_url)
+        if parsed.scheme != "https":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid tunnel URL: Tunnel registration requires HTTPS."
+            )
+        hostname = parsed.hostname
+        if not hostname:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid tunnel URL: Missing hostname."
+            )
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_link_local:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid tunnel URL: Private and link-local IP ranges are forbidden."
+                )
+        except ValueError:
+            if hostname in ("localhost", "127.0.0.1", "::1"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid tunnel URL: Localhost loopback addresses cannot be registered via public tunnel."
+                )
+        return clean_url
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid tunnel URL format: {e}")
 
 
 def get_ai_service_headers() -> Dict[str, str]:
@@ -125,6 +198,7 @@ def get_ai_service_headers() -> Dict[str, str]:
         headers["X-AI-Secret-Token"] = settings.ai_secret_token
     return headers
 
+
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 
@@ -138,19 +212,20 @@ def get_system_status():
 
 @app.get("/api/config")
 def get_configuration():
-    """Returns current active settings."""
-    return settings.model_dump()
+    """Returns current active settings with all secrets strictly masked."""
+    return settings.public_dict()
 
 
 @app.post("/api/config")
-def update_configuration(req: ConfigUpdateRequest):
-    """Updates configuration parameters dynamically without restarting."""
+def update_configuration(req: ConfigUpdateRequest, request: Request):
+    """Updates non-safety configuration parameters dynamically."""
+    verify_admin_key(request)
     payload = {k: v for k, v in req.model_dump().items() if v is not None}
     new_cfg = update_settings(payload)
     return {
         "success": True,
         "message": "Configuration updated successfully.",
-        "config": new_cfg.model_dump(),
+        "config": new_cfg.public_dict(),
     }
 
 
@@ -161,12 +236,17 @@ def get_market_data(
 ):
     """Returns historical candles along with precalculated indicators for chart rendering."""
     inv = interval or settings.timeframe
-    df = fetch_historical_candles(
-        symbol=settings.symbol,
-        range_period=range_period,
-        interval=inv,
-        config=settings
-    )
+    try:
+        df = fetch_historical_candles(
+            symbol=settings.symbol,
+            range_period=range_period,
+            interval=inv,
+            config=settings
+        )
+    except DataUnavailableError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Market data could not be retrieved: {e}")
 
     if df is None or df.empty:
         raise HTTPException(status_code=404, detail="Market data could not be retrieved.")
@@ -214,33 +294,39 @@ def trigger_analysis():
 
 
 @app.post("/api/controls/start")
-def control_start():
+def control_start(request: Request):
+    verify_admin_key(request)
     return engine.start()
 
 
 @app.post("/api/controls/pause")
-def control_pause():
+def control_pause(request: Request):
+    verify_admin_key(request)
     return engine.pause()
 
 
 @app.post("/api/controls/emergency-stop")
-def control_emergency_stop():
+def control_emergency_stop(request: Request):
+    verify_admin_key(request)
     return engine.emergency_stop()
 
 
 @app.post("/api/controls/reset")
-def control_reset():
+def control_reset(request: Request):
+    verify_admin_key(request)
     return engine.reset()
 
 
 @app.post("/api/controls/mode")
-def control_set_mode(req: ModeUpdateRequest):
+def control_set_mode(req: ModeUpdateRequest, request: Request):
+    verify_admin_key(request)
     return engine.set_mode(req.mode)
 
 
 @app.post("/api/backtest")
-def trigger_backtest(req: BacktestRequest):
+def trigger_backtest(req: BacktestRequest, request: Request):
     """Executes a backtest on historical candles with customizable parameters."""
+    verify_admin_key(request)
     sym = req.symbol or settings.symbol
     df = fetch_historical_candles(
         symbol=sym,
@@ -255,7 +341,6 @@ def trigger_backtest(req: BacktestRequest):
             detail=f"Insufficient candle history for symbol '{sym}' (fetched {len(df) if df is not None else 0} candles)."
         )
 
-    # Local overrides if provided
     overrides = {}
     if req.initial_capital is not None:
         overrides["initial_capital"] = req.initial_capital
@@ -278,8 +363,9 @@ def trigger_backtest(req: BacktestRequest):
 
 
 @app.post("/api/backtest-rsi")
-def trigger_rsi_backtest(req: BacktestRequest):
+def trigger_rsi_backtest(req: BacktestRequest, request: Request):
     """Executes a pure RSI 9 & RSI 14 backtest without EMA or VWAP."""
+    verify_admin_key(request)
     sym = req.symbol or settings.symbol
     range_p = req.range_period or "6mo"
     interval = req.interval or "1h"
@@ -322,58 +408,64 @@ def get_logs(limit: int = 50):
 
 
 @app.delete("/api/logs")
-def clear_paper_logs():
+def clear_paper_logs(request: Request):
     """Clears the paper analysis journal."""
+    verify_admin_key(request)
     success = clear_logs(config=settings)
     return {"success": success, "message": "Log file cleared."}
 
 
 @app.post("/api/kotak/login")
-def login_kotak(req: KotakLoginRequest):
+def login_kotak(req: KotakLoginRequest, request: Request):
     """Logs into Kotak Neo API using TOTP."""
+    verify_admin_key(request)
     return engine.kotak.login_with_totp(totp_code=req.totp, mpin=req.mpin)
 
 
 # --- Read-Only Broker Telemetry Endpoints ---
 
 @app.get("/api/orders/positions")
-def get_positions():
+def get_positions(request: Request):
     """Fetches open positions from Kotak Neo API (Read-Only)."""
+    verify_admin_key(request)
     return engine.kotak.get_positions()
 
 
 @app.get("/api/orders/history")
-def get_order_history():
-    """Fetches daily order book / report from Kotak Neo API (Read-Only)."""
+def get_order_history(request: Request):
+    """Fetches daily order report from Kotak Neo API (Read-Only)."""
+    verify_admin_key(request)
     return engine.kotak.get_order_report()
 
 
-# --- Autonomous Machine Learning AI Endpoints ---
+# --- Machine Learning AI Endpoints ---
 
 @app.post("/api/ai/register-tunnel")
 def register_ai_tunnel(req: TunnelRegistrationRequest, request: Request):
     """
     Dynamic Tunnel Handshake endpoint:
-    Allows any desktop running 'start_ai_tunnel.bat' to automatically report
-    its live public tunnel URL to this hosted backend (e.g. on Render) without manual redeployment.
+    Requires X-Admin-Key, HTTPS tunnel URL, and matching AI Secret Token.
     """
-    # 1. Enforce secret token verification if configured
+    verify_admin_key(request)
+
+    # 1. Enforce secret token verification
+    provided_token = req.secret_token or request.headers.get("X-AI-Secret-Token") or request.headers.get("x-ai-secret-token")
     if settings.ai_secret_token:
-        provided_token = req.secret_token or request.headers.get("X-AI-Secret-Token")
-        if not provided_token or provided_token.strip() != settings.ai_secret_token.strip():
+        if not provided_token or not hmac.compare_digest(provided_token.strip(), settings.ai_secret_token.strip()):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Unauthorized: Invalid or missing X-AI-Secret-Token."
             )
+    else:
+        client_host = request.client.host if request.client else ""
+        if not (settings.dev_mode and client_host in ("127.0.0.1", "localhost", "::1", "testclient")):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Tunnel registration unavailable: AI_SECRET_TOKEN is not configured on backend."
+            )
 
-    url = req.tunnel_url.strip()
-    if not (url.startswith("http://") or url.startswith("https://")):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid tunnel URL format. Must begin with http:// or https://"
-        )
-
-    clean_url = url.rstrip("/")
+    # 2. Validate URL security
+    clean_url = validate_tunnel_url(req.tunnel_url)
     update_settings({"ai_model_service_url": clean_url})
 
     return {
@@ -393,16 +485,15 @@ def get_ai_tunnel_status():
         "ai_tunnel_skip_warning": settings.ai_tunnel_skip_warning,
     }
 
+
 @app.get("/api/ai/predict")
 def get_ai_prediction():
     """
     Runs real-time machine learning inference:
     First attempts to query the dedicated Localhost AI Model Microservice (if running),
-    otherwise falls back to the in-process local model.
-    Returns AI Signal (BUY/SELL/HOLD), Confidence %, Model Accuracy %,
-    Plain-English Reason, and Risk Brackets.
+    otherwise falls back to in-process model.
     """
-    # 1. Check if external or standalone Local AI Model server is reachable
+    # 1. Check if external Local AI Model server is reachable
     if settings.ai_model_service_url:
         try:
             import requests
@@ -417,35 +508,54 @@ def get_ai_prediction():
                 res_data["routed_via"] = "localhost_ai_service"
                 return res_data
         except Exception:
-            pass  # Fall back to embedded model
+            pass
 
     # 2. In-process embedded AI model inference
-    df = fetch_historical_candles(
-        symbol=settings.symbol,
-        range_period="5d",
-        interval=settings.timeframe,
-        config=settings
-    )
+    try:
+        df = fetch_historical_candles(
+            symbol=settings.symbol,
+            range_period="5d",
+            interval=settings.timeframe,
+            config=settings
+        )
+    except DataUnavailableError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Market data fetch error: {e}")
 
-    if df is None or len(df) < 20:
-        raise HTTPException(status_code=400, detail="Insufficient candle data to run AI inference.")
+    data_source = df.attrs.get("source", "UNKNOWN") if df is not None else "NONE"
+    if df is None or len(df) < 20 or data_source not in ("YAHOO", "KOTAK_NEO_LIVE"):
+        return {
+            "success": False,
+            "symbol": settings.symbol,
+            "signal": "WAIT",
+            "confidence": 0.0,
+            "model_accuracy": ai_model.last_accuracy,
+            "probabilities": None,
+            "reason": "DATA UNAVAILABLE / NOT LIVE",
+            "brackets": None,
+            "latest_price": None,
+            "feature_snapshot": None,
+            "last_train_time": ai_model.last_train_time,
+            "note": "Market data is not from a live validated source.",
+            "routed_via": "embedded_model",
+        }
 
     pred = ai_model.predict(df, confidence_threshold=55.0)
     reason = generate_decision_reason(pred)
 
     price = pred["latest_price"]
     atr_norm = pred["feature_snapshot"].get("atr_normalized", 1.0)
-    atr = max(0.5, (atr_norm / 100.0) * price)
+    atr = (atr_norm / 100.0) * price
 
-    brackets = calculate_trade_brackets(
-        entry_price=price,
-        atr=atr,
-        side=pred["signal"] if pred["signal"] in ("BUY", "SELL") else "BUY",
-        config=settings
-    )
-
-    # Record daily prediction for 3:30 PM evaluation
-    auto_learner.record_prediction(pred, current_price=price)
+    brackets = None
+    if pred["signal"] in ("BUY", "SELL"):
+        brackets = calculate_trade_brackets(
+            entry_price=price,
+            atr=atr,
+            side=pred["signal"],
+            config=settings
+        )
 
     return {
         "success": True,
@@ -501,4 +611,3 @@ if FRONTEND_DIR.exists():
         if index_path.exists():
             return FileResponse(str(index_path))
         return {"message": "Frontend index.html not found."}
-

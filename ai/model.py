@@ -28,7 +28,7 @@ class EternalAIModel:
         self.model_path = model_path
         self.model: Optional[Any] = None
         self.feature_names: list = []
-        self.last_accuracy: float = 68.5  # Baseline prior
+        self.last_accuracy: Optional[float] = None
         self.last_train_time: Optional[str] = None
         self.total_samples: int = 0
         self.load_if_exists()
@@ -39,7 +39,7 @@ class EternalAIModel:
                 payload = joblib.load(self.model_path)
                 self.model = payload.get("model")
                 self.feature_names = payload.get("features", [])
-                self.last_accuracy = payload.get("accuracy", 68.5)
+                self.last_accuracy = payload.get("accuracy", None)
                 self.last_train_time = payload.get("train_time")
                 self.total_samples = payload.get("samples", 0)
                 return True
@@ -129,8 +129,7 @@ class EternalAIModel:
         Returns Signal, Calibrated Confidence %, Accuracy %, and Probabilities.
         """
         if self.model is None:
-            # Auto-train if model doesn't exist
-            self.train(recent_df)
+            raise RuntimeError("AI Model is not trained yet. Run training before predicting.")
 
         feats = extract_features(recent_df)
         latest_feat = feats.iloc[-1:][self.feature_names]

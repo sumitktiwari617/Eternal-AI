@@ -111,9 +111,18 @@ class PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):
         return response
 
 
+import hmac
+
+cors_origins_list = (
+    [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    if settings.cors_origins and settings.cors_origins != "*"
+    else ["http://localhost:8000", "http://127.0.0.1:8000"]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins_list,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -126,13 +135,10 @@ app.add_middleware(PrivateNetworkAccessMiddleware)
 
 def verify_tunnel_auth(request: Request):
     """
-    If AI_SECRET_TOKEN is configured in environment, verifies that incoming
-    tunnel requests supply the matching X-AI-Secret-Token header.
-    Protects your Localhost AI Model when exposed to the internet via ngrok / Cloudflare Tunnel.
+    Verifies incoming requests supply the matching X-AI-Secret-Token header.
+    Fails closed: requires AI_SECRET_TOKEN unless DEV_MODE=true and bound to localhost.
+    Uses hmac.compare_digest to prevent timing attacks.
     """
-    if not settings.ai_secret_token:
-        return True  # Open mode (tunnel token disabled)
-
     token = (
         request.headers.get("X-AI-Secret-Token")
         or request.headers.get("x-ai-secret-token")
@@ -142,12 +148,25 @@ def verify_tunnel_auth(request: Request):
         if auth_hdr.startswith("Bearer "):
             token = auth_hdr[7:].strip()
 
-    if token != settings.ai_secret_token:
-        raise HTTPException(
-            status_code=401,
-            detail="Unauthorized: Missing or invalid X-AI-Secret-Token header for AI Model Tunnel."
-        )
-    return True
+    expected = settings.ai_secret_token
+    if expected:
+        if not token or not hmac.compare_digest(token.strip(), expected.strip()):
+            raise HTTPException(
+                status_code=401,
+                detail="Unauthorized: Missing or invalid X-AI-Secret-Token header for AI Model Tunnel."
+            )
+        return True
+
+    # If AI_SECRET_TOKEN is unset in env:
+    client_host = request.client.host if request.client else ""
+    is_localhost = client_host in ("127.0.0.1", "localhost", "::1", "testclient")
+    if settings.dev_mode and is_localhost:
+        return True
+
+    raise HTTPException(
+        status_code=503,
+        detail="AI Service Unavailable: AI_SECRET_TOKEN is not configured."
+    )
 
 
 # --- Endpoints ---
@@ -241,22 +260,42 @@ def get_ai_prediction_live(
             detail=f"Insufficient candle history for symbol '{target_symbol}' to run AI inference."
         )
 
+    data_source = df.attrs.get("source", "UNKNOWN")
+    if data_source not in ("YAHOO", "KOTAK_NEO_LIVE"):
+        return {
+            "success": False,
+            "source": "localhost_ai_model",
+            "symbol": target_symbol,
+            "timeframe": target_tf,
+            "signal": "WAIT",
+            "confidence": 0.0,
+            "model_accuracy": ai_model.last_accuracy,
+            "probabilities": None,
+            "reason": "DATA UNAVAILABLE / NOT LIVE",
+            "brackets": None,
+            "latest_price": None,
+            "feature_snapshot": None,
+            "last_train_time": ai_model.last_train_time,
+            "note": "Market data is not from a live validated source.",
+        }
+
     pred = ai_model.predict(df, confidence_threshold=confidence_threshold)
     reason = generate_decision_reason(pred)
 
     price = pred["latest_price"]
     atr_norm = pred["feature_snapshot"].get("atr_normalized", 1.0)
-    atr = max(0.5, (atr_norm / 100.0) * price)
+    atr = (atr_norm / 100.0) * price
 
-    brackets = calculate_trade_brackets(
-        entry_price=price,
-        atr=atr,
-        side=pred["signal"] if pred["signal"] in ("BUY", "SELL") else "BUY",
-        config=settings
-    )
+    brackets = None
+    if pred["signal"] in ("BUY", "SELL"):
+        brackets = calculate_trade_brackets(
+            entry_price=price,
+            atr=atr,
+            side=pred["signal"],
+            config=settings
+        )
 
-    # Log prediction for 3:30 PM accuracy audit
-    auto_learner.record_prediction(pred, current_price=price)
+    # Note: Closed-candle prediction logging is handled strictly at candle close via logger
 
     return {
         "success": True,
@@ -315,21 +354,39 @@ def predict_from_candles(req: PredictCandlesRequest, request: Request):
             detail=f"Insufficient candle history (need >= 20 candles, got {len(df) if df is not None else 0})."
         )
 
+    data_source = df.attrs.get("source", "LIVE" if req.candles else "UNKNOWN")
+    if data_source not in ("YAHOO", "KOTAK_NEO_LIVE", "LIVE"):
+        return {
+            "success": False,
+            "source": "localhost_ai_model",
+            "symbol": target_symbol,
+            "signal": "WAIT",
+            "confidence": 0.0,
+            "model_accuracy": ai_model.last_accuracy,
+            "probabilities": None,
+            "reason": "DATA UNAVAILABLE / NOT LIVE",
+            "brackets": None,
+            "latest_price": None,
+            "feature_snapshot": None,
+            "last_train_time": ai_model.last_train_time,
+            "note": "Market data is not from a live validated source.",
+        }
+
     pred = ai_model.predict(df, confidence_threshold=conf_thresh)
     reason = generate_decision_reason(pred)
 
     price = pred["latest_price"]
     atr_norm = pred["feature_snapshot"].get("atr_normalized", 1.0)
-    atr = max(0.5, (atr_norm / 100.0) * price)
+    atr = (atr_norm / 100.0) * price
 
-    brackets = calculate_trade_brackets(
-        entry_price=price,
-        atr=atr,
-        side=pred["signal"] if pred["signal"] in ("BUY", "SELL") else "BUY",
-        config=settings
-    )
-
-    auto_learner.record_prediction(pred, current_price=price)
+    brackets = None
+    if pred["signal"] in ("BUY", "SELL"):
+        brackets = calculate_trade_brackets(
+            entry_price=price,
+            atr=atr,
+            side=pred["signal"],
+            config=settings
+        )
 
     return {
         "success": True,

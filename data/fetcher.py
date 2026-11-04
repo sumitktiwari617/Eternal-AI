@@ -1,4 +1,5 @@
-from typing import Optional, Dict, Any, Tuple
+import logging
+from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 import zoneinfo
 import requests
@@ -6,6 +7,13 @@ import pandas as pd
 import numpy as np
 
 from config import Settings, settings as default_settings
+
+logger = logging.getLogger(__name__)
+
+
+class DataUnavailableError(Exception):
+    """Raised when live market data cannot be retrieved and synthetic fallback is disabled."""
+    pass
 
 
 def fetch_historical_candles(
@@ -16,10 +24,11 @@ def fetch_historical_candles(
 ) -> pd.DataFrame:
     """
     Fetches historical OHLCV candles via Yahoo Finance REST API.
-    Falls back gracefully to realistic simulated candles if offline.
+    Raises DataUnavailableError on failure unless ALLOW_SYNTHETIC_DATA is explicitly enabled.
     """
     cfg = config or default_settings
     sym = symbol or cfg.symbol
+    tz = zoneinfo.ZoneInfo(cfg.timezone)
 
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range={range_period}&interval={interval}"
     headers = {
@@ -37,7 +46,6 @@ def fetch_historical_candles(
                 quotes = item.get("indicators", {}).get("quote", [{}])[0]
 
                 if timestamps and quotes:
-                    tz = zoneinfo.ZoneInfo(cfg.timezone)
                     dt_index = [
                         datetime.fromtimestamp(ts, tz=zoneinfo.ZoneInfo("UTC")).astimezone(tz)
                         for ts in timestamps
@@ -51,16 +59,24 @@ def fetch_historical_candles(
                         "volume": quotes.get("volume", []),
                     }, index=pd.DatetimeIndex(dt_index))
 
-                    # Forward fill and drop NaNs
+                    # Drop rows missing close price
                     df = df.dropna(subset=["close"])
                     if not df.empty:
+                        df.attrs["source"] = "YAHOO"
+                        df.attrs["fetched_at"] = datetime.now(tz).isoformat()
                         return df
     except Exception as ex:
-        # Log or fall back
-        pass
+        logger.warning(f"Yahoo Finance candle fetch failed for {sym}: {ex}")
 
-    # Fallback: Synthetic market simulation for offline resilience
-    return generate_synthetic_candles(symbol=sym, count=250, interval_minutes=5, timezone_str=cfg.timezone)
+    # Fallback to synthetic data ONLY when explicitly enabled in configuration
+    if getattr(cfg, "allow_synthetic_data", False):
+        logger.info(f"ALLOW_SYNTHETIC_DATA=True: Generating synthetic candles for {sym}")
+        df = generate_synthetic_candles(symbol=sym, count=250, interval_minutes=5, timezone_str=cfg.timezone)
+        df.attrs["source"] = "SYNTHETIC"
+        df.attrs["fetched_at"] = datetime.now(tz).isoformat()
+        return df
+
+    raise DataUnavailableError(f"Historical candles unavailable for {sym} from live sources and synthetic fallback is disabled.")
 
 
 def fetch_latest_quote(
@@ -70,12 +86,17 @@ def fetch_latest_quote(
 ) -> Dict[str, Any]:
     """
     Fetches latest available real-time quote/LTP for symbol.
-    Checks Kotak Neo live quote first when authenticated; falls back to Yahoo Finance or synthetic feed.
+    Checks Kotak Neo live quote first when authenticated; falls back to Yahoo Finance.
+    Never returns hardcoded or fabricated prices on failure.
     """
     cfg = config or default_settings
     sym = symbol or cfg.symbol
+    tz = zoneinfo.ZoneInfo(cfg.timezone)
 
-    # Try Kotak Neo live API first if authenticated
+    kotak_err: Optional[str] = None
+    quote_err: Optional[str] = None
+
+    # 1. Try Kotak Neo live API first if authenticated
     adapter = kotak_adapter
     if adapter is None:
         try:
@@ -86,7 +107,9 @@ def fetch_latest_quote(
 
     if adapter and getattr(adapter, "is_authenticated", False):
         try:
-            k_res = adapter.get_live_quote(symbol=sym)
+            tok = getattr(cfg, "kotak_token", "5097")
+            seg = getattr(cfg, "kotak_segment", "nse_cm")
+            k_res = adapter.get_live_quote(token=tok, segment=seg)
             if k_res.get("success") and k_res.get("quote"):
                 q = k_res["quote"]
                 ltp = float(q.get("ltp", 0.0))
@@ -100,53 +123,74 @@ def fetch_latest_quote(
                     "volume": int(q.get("vol", 0) or q.get("volume", 0)),
                     "change": round(float(q.get("net_change", 0.0)), 2),
                     "change_pct": round(float(q.get("percent_change", 0.0)), 2),
-                    "timestamp": q.get("lstup_time") or datetime.now(zoneinfo.ZoneInfo(cfg.timezone)).isoformat(),
+                    "timestamp": q.get("lstup_time") or datetime.now(tz).isoformat(),
                     "source": "KOTAK_NEO_LIVE",
+                    "quote_source": "KOTAK_NEO_LIVE",
+                    "quote_error": None,
+                    "success": True,
                     "is_fresh": True,
                 }
-        except Exception:
-            pass
+            else:
+                kotak_err = k_res.get("error", "Empty quote from Kotak Neo")
+                logger.warning(f"Kotak Neo quote unsuccessful for token {tok}: {kotak_err}")
+        except Exception as ex:
+            kotak_err = str(ex)
+            logger.error(f"Kotak Neo live quote exception: {ex}")
 
-    # Primary Fallback: Yahoo Finance REST API
+    # 2. Secondary Fallback: Yahoo Finance REST API via 1-day candles
+    try:
+        df = fetch_historical_candles(symbol=sym, range_period="1d", interval="5m", config=cfg)
+        if df is not None and not df.empty:
+            source = df.attrs.get("source", "YAHOO")
+            latest = df.iloc[-1]
+            prev = df.iloc[-2] if len(df) > 1 else latest
+            ltp = float(latest["close"])
+            change = float(ltp - prev["close"])
+            change_pct = (change / prev["close"] * 100.0) if prev["close"] > 0 else 0.0
 
-    df = fetch_historical_candles(symbol=sym, range_period="1d", interval="5m", config=cfg)
-    if df is not None and not df.empty:
-        latest = df.iloc[-1]
-        prev = df.iloc[-2] if len(df) > 1 else latest
-        ltp = float(latest["close"])
-        change = float(ltp - prev["close"])
-        change_pct = (change / prev["close"] * 100.0) if prev["close"] > 0 else 0.0
+            ts = latest.name if hasattr(latest, "name") else datetime.now(tz)
+            is_fresh = (source != "SYNTHETIC")
 
-        ts = latest.name if hasattr(latest, "name") else datetime.now(zoneinfo.ZoneInfo(cfg.timezone))
+            return {
+                "symbol": sym,
+                "ltp": round(ltp, 2),
+                "open": round(float(latest["open"]), 2),
+                "high": round(float(latest["high"]), 2),
+                "low": round(float(latest["low"]), 2),
+                "close": round(ltp, 2),
+                "volume": int(latest["volume"]),
+                "change": round(change, 2),
+                "change_pct": round(change_pct, 2),
+                "timestamp": ts.isoformat() if hasattr(ts, "isoformat") else str(ts),
+                "source": source,
+                "quote_source": source,
+                "quote_error": None if source != "SYNTHETIC" else "Live quote unavailable; synthetic data used",
+                "success": True,
+                "is_fresh": is_fresh,
+            }
+    except DataUnavailableError as e:
+        quote_err = str(e)
+    except Exception as e:
+        quote_err = str(e)
+        logger.warning(f"Yahoo candle fallback failed for quote: {e}")
 
-        return {
-            "symbol": sym,
-            "ltp": round(ltp, 2),
-            "open": round(float(latest["open"]), 2),
-            "high": round(float(latest["high"]), 2),
-            "low": round(float(latest["low"]), 2),
-            "close": round(ltp, 2),
-            "volume": int(latest["volume"]),
-            "change": round(change, 2),
-            "change_pct": round(change_pct, 2),
-            "timestamp": ts.isoformat() if hasattr(ts, "isoformat") else str(ts),
-            "is_fresh": True,
-        }
-
-    # Emergency fallback
-    now = datetime.now(zoneinfo.ZoneInfo(cfg.timezone))
+    # Fail closed: No hardcoded fallback prices
     return {
         "symbol": sym,
-        "ltp": 322.60,
-        "open": 320.00,
-        "high": 324.50,
-        "low": 319.50,
-        "close": 322.60,
-        "volume": 125000,
-        "change": 2.60,
-        "change_pct": 0.81,
-        "timestamp": now.isoformat(),
+        "success": False,
+        "reason": "Live market quote unavailable from Kotak Neo and Yahoo Finance.",
+        "quote_source": "NONE",
+        "quote_error": quote_err or kotak_err or "Market quote feed unavailable",
         "is_fresh": False,
+        "ltp": None,
+        "open": None,
+        "high": None,
+        "low": None,
+        "close": None,
+        "volume": None,
+        "change": None,
+        "change_pct": None,
+        "timestamp": datetime.now(tz).isoformat(),
     }
 
 
@@ -157,8 +201,8 @@ def generate_synthetic_candles(
     timezone_str: str = "Asia/Kolkata"
 ) -> pd.DataFrame:
     """
-    Generates realistic synthetic geometric Brownian motion intraday candles
-    for offline testing and development.
+    Generates synthetic geometric Brownian motion intraday candles.
+    ONLY used when ALLOW_SYNTHETIC_DATA=True for local testing/demo.
     """
     tz = zoneinfo.ZoneInfo(timezone_str)
     now = datetime.now(tz)
@@ -202,4 +246,3 @@ def generate_synthetic_candles(
         "close": closes,
         "volume": volumes,
     }, index=pd.DatetimeIndex(dt_index))
-

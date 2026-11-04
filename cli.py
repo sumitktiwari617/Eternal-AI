@@ -371,6 +371,24 @@ def cmd_ai_server(args=None):
     uvicorn.run("ai.server:app", host=host, port=port, reload=False)
 
 
+def cmd_verify_kotak_token(args=None):
+    print_banner()
+    print("🔍 Kotak Neo Instrument Token Verification")
+    print("-" * 65)
+    res = engine.kotak.verify_instrument_token()
+    print(f"Token:           {res.get('token')}")
+    print(f"Segment:         {res.get('segment')}")
+    print(f"Expected Symbol: {res.get('expected_symbol')}")
+    print(f"Actual Symbol:   {res.get('actual_symbol') or 'N/A'}")
+    print(f"Status:          {res.get('status')}")
+    print(f"Verified Match:  {'YES ✅' if res.get('verified') else 'NO / UNVERIFIED ❌'}")
+    if res.get("error"):
+        print(f"Details:         {res.get('error')}")
+    if res.get("ltp"):
+        print(f"Live Price:      ₹{res.get('ltp'):.2f}")
+    print("=" * 65)
+
+
 def interactive_menu():
     while True:
         print_banner()
@@ -466,6 +484,9 @@ def main():
     # Reset
     subparsers.add_parser("reset", help="Reset emergency stop to idle")
 
+    # Verify Kotak Token
+    subparsers.add_parser("verify-kotak-token", help="Verify Kotak Neo instrument token matches expected symbol")
+
     # Server
     p_server = subparsers.add_parser("server", help="Launch FastAPI web server")
     p_server.add_argument("--host", type=str, default="127.0.0.1", help="Host address")
@@ -491,6 +512,8 @@ def main():
         cmd_emergency_stop(args)
     elif args.command == "reset":
         cmd_reset(args)
+    elif args.command == "verify-kotak-token":
+        cmd_verify_kotak_token(args)
     elif args.command == "server":
         cmd_server(args)
     else:

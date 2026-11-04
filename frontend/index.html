@@ -495,9 +495,8 @@
           </div>
           <div class="form-group">
             <label class="label">Enforce Market Hours (9:15-15:30 IST)</label>
-            <select id="cfg-market-hours" class="input-select">
-              <option value="false">False (Run 24/7 for Testing)</option>
-              <option value="true">True (Strict Market Hours)</option>
+            <select id="cfg-market-hours" class="input-select" disabled>
+              <option value="true" selected>Strictly Enforced (Safety Gate: Active)</option>
             </select>
           </div>
         </form>
@@ -521,6 +520,13 @@
               <input type="text" id="cfg-render-backend-url" class="input-text font-mono" placeholder="https://eternal-trading-backend.onrender.com">
               <button id="btn-save-backend-url" class="btn btn-primary" type="button">Save Backend</button>
               <button id="btn-test-backend-conn" class="btn btn-secondary" type="button">Test Backend</button>
+            </div>
+            <div class="mt-2">
+              <label class="label text-xs">Admin API Key (X-Admin-Key):</label>
+              <div class="flex-row gap-2">
+                <input type="password" id="cfg-admin-api-key" class="input-text font-mono" placeholder="Admin Key for mutating actions (stored in session)">
+                <button id="btn-save-admin-key" class="btn btn-secondary" type="button">Set Key</button>
+              </div>
             </div>
             <p class="text-muted text-xs mt-1">Leave empty to use current origin (for local execution).</p>
           </div>

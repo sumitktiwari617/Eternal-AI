@@ -4,6 +4,19 @@ let RENDER_BACKEND_URL = localStorage.getItem("eternal_backend_url") || "";
 let LOCAL_AI_BASE = localStorage.getItem("eternal_local_ai_url") || "http://127.0.0.1:8001";
 let AI_SECRET_TOKEN = localStorage.getItem("eternal_ai_token") || "";
 
+function getAuthHeaders(customHeaders = {}) {
+  const headers = { ...customHeaders };
+  const adminKey = sessionStorage.getItem("eternal_admin_key");
+  if (adminKey && adminKey.trim()) {
+    headers["X-Admin-Key"] = adminKey.trim();
+  }
+  const aiToken = localStorage.getItem("eternal_ai_token") || AI_SECRET_TOKEN;
+  if (aiToken && aiToken.trim()) {
+    headers["X-AI-Secret-Token"] = aiToken.trim();
+  }
+  return headers;
+}
+
 function getApiBase() {
   if (RENDER_BACKEND_URL && RENDER_BACKEND_URL.trim().length > 0) {
     return RENDER_BACKEND_URL.trim().replace(/\/+$/, "");
@@ -350,7 +363,10 @@ async function fetchAIPrediction() {
 function renderAIPrediction(pred, source = "localhost") {
   // 1. Accuracy Badge & Source Badge
   const accBadge = document.getElementById("ai-accuracy-badge");
-  if (accBadge) accBadge.textContent = `Model Accuracy: ${pred.model_accuracy}%`;
+  if (accBadge) {
+    const accText = (pred.model_accuracy != null) ? `${pred.model_accuracy}%` : "N/A";
+    accBadge.textContent = `Model Accuracy: ${accText}`;
+  }
 
   const sourceBadge = document.getElementById("ai-source-badge");
   if (sourceBadge) {
@@ -377,18 +393,19 @@ function renderAIPrediction(pred, source = "localhost") {
 
   // 3. Confidence Bar & Value
   const confVal = document.getElementById("ai-confidence-val");
-  if (confVal) confVal.textContent = `${pred.confidence}%`;
+  const confNum = pred.confidence != null ? pred.confidence : 0;
+  if (confVal) confVal.textContent = pred.confidence != null ? `${pred.confidence}%` : "N/A";
   const confBar = document.getElementById("ai-confidence-bar");
-  if (confBar) confBar.style.width = `${Math.min(100, Math.max(5, pred.confidence))}%`;
+  if (confBar) confBar.style.width = `${Math.min(100, Math.max(0, confNum))}%`;
 
   // 4. Probability Pills
   const probs = pred.probabilities || {};
   const pBuy = document.getElementById("prob-buy");
   const pHold = document.getElementById("prob-hold");
   const pSell = document.getElementById("prob-sell");
-  if (pBuy) pBuy.textContent = `BUY: ${probs.BUY || 0}%`;
-  if (pHold) pHold.textContent = `HOLD: ${probs.HOLD || 0}%`;
-  if (pSell) pSell.textContent = `SELL: ${probs.SELL || 0}%`;
+  if (pBuy) pBuy.textContent = `BUY: ${probs.BUY != null ? probs.BUY + '%' : 'N/A'}`;
+  if (pHold) pHold.textContent = `HOLD: ${probs.HOLD != null ? probs.HOLD + '%' : 'N/A'}`;
+  if (pSell) pSell.textContent = `SELL: ${probs.SELL != null ? probs.SELL + '%' : 'N/A'}`;
 
   // 5. Decision Reason
   const reasonEl = document.getElementById("signal-reason");
@@ -397,23 +414,29 @@ function renderAIPrediction(pred, source = "localhost") {
   // 6. Meta
   const metaEl = document.getElementById("signal-meta");
   if (metaEl) {
-    metaEl.textContent = `Asset: ${pred.symbol} | Retrained: ${pred.last_train_time || 'Active'} | Conviction: ${pred.note || ''}`;
+    metaEl.textContent = `Asset: ${pred.symbol || 'ETERNAL.NS'} | Retrained: ${pred.last_train_time || 'Active'} | Conviction: ${pred.note || ''}`;
   }
 
   // 7. Brackets
+  const brkAtr = document.getElementById("bracket-atr-info");
+  const brkEntry = document.getElementById("bracket-entry");
+  const brkStop = document.getElementById("bracket-stop");
+  const brkTarget = document.getElementById("bracket-target");
+  const brkRr = document.getElementById("bracket-rr");
+
   if (pred.brackets) {
     const b = pred.brackets;
-    const brkAtr = document.getElementById("bracket-atr-info");
-    const brkEntry = document.getElementById("bracket-entry");
-    const brkStop = document.getElementById("bracket-stop");
-    const brkTarget = document.getElementById("bracket-target");
-    const brkRr = document.getElementById("bracket-rr");
-
     if (brkAtr) brkAtr.textContent = `ATR 14: ₹${b.atr?.toFixed(2) || "--"}`;
     if (brkEntry) brkEntry.textContent = `₹${b.entry_price?.toFixed(2) || "--"}`;
     if (brkStop) brkStop.textContent = `₹${b.stop_loss?.toFixed(2) || "--"}`;
     if (brkTarget) brkTarget.textContent = `₹${b.target?.toFixed(2) || "--"}`;
-    if (brkRr) brkRr.textContent = b.risk_reward_ratio || "1:1.33";
+    if (brkRr) brkRr.textContent = b.risk_reward_ratio || "1:3.00";
+  } else {
+    if (brkAtr) brkAtr.textContent = "ATR: N/A";
+    if (brkEntry) brkEntry.textContent = "N/A";
+    if (brkStop) brkStop.textContent = "N/A";
+    if (brkTarget) brkTarget.textContent = "N/A";
+    if (brkRr) brkRr.textContent = "N/A";
   }
 }
 
@@ -461,13 +484,13 @@ async function fetchAIAccuracyTrend() {
 function renderAccuracyTimeline(history) {
   const listEl = document.getElementById("learning-timeline-list");
   if (!listEl) return;
-  if (history.length === 0) {
-    listEl.innerHTML = `<li>No training history recorded yet.</li>`;
+  if (!history || history.length === 0) {
+    listEl.innerHTML = `<li class="text-muted" style="font-style: italic;">No validated accuracy yet (Awaiting out-of-sample audit at market close).</li>`;
     return;
   }
   const items = history.slice(-4).reverse().map(h => `
     <li>
-      <span class="text-white font-bold">${h.date}</span>: Accuracy <span class="text-emerald font-bold">${h.accuracy}%</span> (${h.samples} candles) — <span class="text-muted">${h.event}</span>
+      <span class="text-white font-bold">${h.date}</span>: Accuracy <span class="text-emerald font-bold">${h.accuracy != null ? h.accuracy + '%' : 'N/A'}</span> (${h.samples} candles) — <span class="text-muted">${h.event}</span>
     </li>
   `).join("");
   listEl.innerHTML = items;
@@ -475,7 +498,7 @@ function renderAccuracyTimeline(history) {
 
 function drawAccuracyChart(history) {
   const canvas = document.getElementById("accuracy-chart");
-  if (!canvas || history.length === 0) return;
+  if (!canvas) return;
 
   const ctx = canvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
@@ -487,6 +510,14 @@ function drawAccuracyChart(history) {
   const w = rect.width || 350;
   const h = 150;
   ctx.clearRect(0, 0, w, h);
+
+  if (!history || history.length === 0) {
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("No validated accuracy yet", w / 2, h / 2);
+    return;
+  }
 
   const accs = history.map(h => h.accuracy);
   const minAcc = Math.max(0, Math.min(...accs) - 5);
@@ -560,7 +591,10 @@ function bindControls() {
   document.getElementById("btn-refresh-logs")?.addEventListener("click", fetchLogs);
   document.getElementById("btn-clear-logs")?.addEventListener("click", async () => {
     if (confirm("Clear all recorded paper trading logs?")) {
-      const res = await fetch(`${getApiBase()}/api/logs`, { method: "DELETE" });
+      const res = await fetch(`${getApiBase()}/api/logs`, {
+        method: "DELETE",
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         showToast("Journal cleared.");
         fetchLogs();
@@ -580,14 +614,14 @@ async function postAction(endpoint, successMsg = null, payload = null) {
   try {
     const options = {
       method: "POST",
-      headers: { "Content-Type": "application/json" }
+      headers: getAuthHeaders({ "Content-Type": "application/json" })
     };
     if (payload) options.body = JSON.stringify(payload);
 
     const res = await fetch(`${getApiBase()}${endpoint}`, options);
     const data = await res.json();
-    if (data.error) {
-      showToast(data.error, true);
+    if (data.error || (res.status >= 400 && data.detail)) {
+      showToast(data.error || data.detail, true);
     } else {
       showToast(successMsg || data.message || "Action successful");
       fetchStatus();
@@ -852,7 +886,7 @@ function bindBacktestForm() {
     try {
       const res = await fetch(`${getApiBase()}/api/backtest`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(payload)
       });
 
@@ -989,14 +1023,13 @@ function bindSettingsForm() {
       stop_loss_atr_mult: parseFloat(document.getElementById("cfg-sl-mult").value),
       target_atr_mult: parseFloat(document.getElementById("cfg-tp-mult").value),
       initial_capital: parseFloat(document.getElementById("cfg-capital").value),
-      max_risk_per_trade_rupees: parseFloat(document.getElementById("cfg-max-risk").value),
-      enforce_market_hours: document.getElementById("cfg-market-hours").value === "true"
+      max_risk_per_trade_rupees: parseFloat(document.getElementById("cfg-max-risk").value)
     };
 
     try {
       const res = await fetch(`${getApiBase()}/api/config`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(payload)
       });
       const data = await res.json();
@@ -1004,7 +1037,7 @@ function bindSettingsForm() {
         showToast("Configuration saved successfully!");
         fetchStatus();
       } else {
-        showToast("Failed to update config", true);
+        showToast(data.detail || data.error || "Failed to update config", true);
       }
     } catch (err) {
       showToast(`Error saving config: ${err.message}`, true);
@@ -1029,6 +1062,17 @@ function initLocalAIModelConnection() {
   if (tokenInput) {
     tokenInput.value = AI_SECRET_TOKEN;
   }
+
+  const adminKeyInput = document.getElementById("cfg-admin-api-key");
+  if (adminKeyInput) {
+    adminKeyInput.value = sessionStorage.getItem("eternal_admin_key") || "";
+  }
+
+  document.getElementById("btn-save-admin-key")?.addEventListener("click", () => {
+    const keyVal = (document.getElementById("cfg-admin-api-key")?.value || "").trim();
+    sessionStorage.setItem("eternal_admin_key", keyVal);
+    showToast("Admin API Key saved for this browser session!");
+  });
 
   // 2. Render Backend Buttons
   document.getElementById("btn-save-backend-url")?.addEventListener("click", () => {
@@ -1139,12 +1183,13 @@ async function checkLocalAIHealth(interactive = false) {
         badge.className = "badge font-mono text-emerald";
         badge.style.borderColor = "#10b981";
       }
+      const accStr = (info.accuracy != null) ? `${info.accuracy}%` : "N/A";
       if (teleStatus) {
-        teleStatus.textContent = `Online (${info.accuracy || 68.5}% acc)`;
+        teleStatus.textContent = `Online (${accStr} acc)`;
         teleStatus.className = "text-emerald";
       }
       if (interactive) {
-        showToast(`Connected to AI Model Tunnel! Accuracy: ${info.accuracy || 68.5}%`);
+        showToast(`Connected to AI Model Tunnel! Accuracy: ${accStr}`);
       }
       return;
     }
@@ -1185,8 +1230,8 @@ function bindOrderControls() {
       msg.className = "text-xs font-mono mt-2 text-cyan";
     }
     try {
-      const posRes = await fetch(`${getApiBase()}/api/orders/positions`);
-      const ordRes = await fetch(`${getApiBase()}/api/orders/history`);
+      const posRes = await fetch(`${getApiBase()}/api/orders/positions`, { headers: getAuthHeaders() });
+      const ordRes = await fetch(`${getApiBase()}/api/orders/history`, { headers: getAuthHeaders() });
       const posData = await posRes.json();
       const ordData = await ordRes.json();
 

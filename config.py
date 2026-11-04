@@ -42,10 +42,18 @@ class Settings(BaseModel):
     emergency_stop: bool = Field(default_factory=lambda: os.getenv("EMERGENCY_STOP", "False").lower() in ("true", "1", "yes"))
     agent_mode: str = Field(default_factory=lambda: os.getenv("AGENT_MODE", "GUIDER"))  # "GUIDER" (Advisory Only) or "PAPER"
     max_data_age_seconds: int = Field(default_factory=lambda: int(os.getenv("MAX_DATA_AGE_SECONDS", "300")))
-    enforce_market_hours: bool = Field(default_factory=lambda: os.getenv("ENFORCE_MARKET_HOURS", "False").lower() in ("true", "1", "yes"))
+    enforce_market_hours: bool = Field(default_factory=lambda: os.getenv("ENFORCE_MARKET_HOURS", "True").lower() in ("true", "1", "yes"))
     market_open_time: str = Field(default_factory=lambda: os.getenv("MARKET_OPEN_TIME", "09:15"))
     market_close_time: str = Field(default_factory=lambda: os.getenv("MARKET_CLOSE_TIME", "15:30"))
+    opening_discovery_end_time: str = Field(default_factory=lambda: os.getenv("OPENING_DISCOVERY_END_TIME", "09:30"))
+    no_new_entries_time: str = Field(default_factory=lambda: os.getenv("NO_NEW_ENTRIES_TIME", "14:30"))
+    market_holidays_file: str = Field(default_factory=lambda: os.getenv("MARKET_HOLIDAYS_FILE", "config/market_holidays.json"))
+    allow_synthetic_data: bool = Field(default_factory=lambda: os.getenv("ALLOW_SYNTHETIC_DATA", "False").lower() in ("true", "1", "yes"))
     timezone: str = Field(default_factory=lambda: os.getenv("TIMEZONE", "Asia/Kolkata"))
+
+    # --- Security & Access Controls ---
+    admin_api_key: Optional[str] = Field(default_factory=lambda: os.getenv("ADMIN_API_KEY", None))
+    dev_mode: bool = Field(default_factory=lambda: os.getenv("DEV_MODE", "True").lower() in ("true", "1", "yes"))
 
     # --- Kotak Neo Broker Credentials (Optional) ---
     kotak_consumer_key: Optional[str] = Field(default_factory=lambda: os.getenv("KOTAK_CONSUMER_KEY", None))
@@ -75,17 +83,38 @@ class Settings(BaseModel):
     paper_log_file: str = Field(default_factory=lambda: os.getenv("PAPER_LOG_FILE", "eternal_paper_log.jsonl"))
     backtest_csv_file: str = Field(default_factory=lambda: os.getenv("BACKTEST_CSV_FILE", "eternal_backtest_results.csv"))
 
+    def public_dict(self) -> dict:
+        """Returns non-secret configuration fields safe for public serialization."""
+        secret_keys = {
+            "kotak_consumer_key", "kotak_consumer_secret", "kotak_mobile_number",
+            "kotak_client_code", "kotak_mpin", "ai_secret_token", "ngrok_authtoken",
+            "admin_api_key"
+        }
+        full = self.model_dump()
+        return {k: v for k, v in full.items() if k not in secret_keys}
+
+    def __repr__(self) -> str:
+        safe = self.public_dict()
+        return f"Settings({safe})"
+
 
 # Global singleton settings object
 settings = Settings()
+
+PROTECTED_UPDATE_FIELDS = {
+    "real_orders_enabled",
+    "enforce_market_hours",
+    "max_data_age_seconds",
+    "allow_synthetic_data"
+}
 
 
 def update_settings(new_values: dict) -> Settings:
     """Dynamically update configuration parameters at runtime in-place."""
     global settings
     for k, v in new_values.items():
-        if k == "real_orders_enabled":
-            continue  # Hard-lock: real orders can NEVER be enabled
+        if k in PROTECTED_UPDATE_FIELDS:
+            continue  # Hard-lock: safety-critical flags can NEVER be mutated via API
         if hasattr(settings, k):
             setattr(settings, k, v)
     settings.real_orders_enabled = False

@@ -13,13 +13,14 @@ import os
 import sys
 import json
 from pathlib import Path
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 # Ensure root workspace is in sys.path
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
-from config import settings, update_settings
+from config import Settings, settings, update_settings
 from backend.app import app as backend_app
 from ai.server import app as ai_app
 from ai.model import ai_model
@@ -150,13 +151,18 @@ def test_ai_server_private_network_access():
 def test_ai_server_open_mode_when_no_token():
     """When AI_SECRET_TOKEN is empty, server allows local/development requests."""
     orig_token = settings.ai_secret_token
+    orig_synthetic = settings.allow_synthetic_data
     try:
-        update_settings({"ai_secret_token": None})
-        resp = client_ai.get("/api/ai/predict")
-        assert resp.status_code == 200
-        assert resp.json().get("success") is True
+        update_settings({"ai_secret_token": None, "allow_synthetic_data": True})
+        from data.fetcher import generate_synthetic_candles
+        mock_df = generate_synthetic_candles()
+        mock_df.attrs["source"] = "YAHOO"
+        with patch("ai.server.fetch_historical_candles", return_value=mock_df):
+            resp = client_ai.get("/api/ai/predict")
+            assert resp.status_code == 200
+            assert resp.json().get("success") is True
     finally:
-        update_settings({"ai_secret_token": orig_token})
+        update_settings({"ai_secret_token": orig_token, "allow_synthetic_data": orig_synthetic})
 
 
 def test_ai_server_token_enforcement_when_configured():
@@ -172,12 +178,16 @@ def test_ai_server_token_enforcement_when_configured():
         assert "Unauthorized" in resp_unauth.json().get("detail", "")
 
         # Request WITH valid X-AI-Secret-Token -> 200 OK
-        resp_auth = client_ai.get(
-            "/api/ai/predict",
-            headers={"X-AI-Secret-Token": test_secret, "ngrok-skip-browser-warning": "1"}
-        )
-        assert resp_auth.status_code == 200
-        assert resp_auth.json().get("success") is True
+        from data.fetcher import generate_synthetic_candles
+        mock_df = generate_synthetic_candles()
+        mock_df.attrs["source"] = "YAHOO"
+        with patch("ai.server.fetch_historical_candles", return_value=mock_df):
+            resp_auth = client_ai.get(
+                "/api/ai/predict",
+                headers={"X-AI-Secret-Token": test_secret, "ngrok-skip-browser-warning": "1"}
+            )
+            assert resp_auth.status_code == 200
+            assert resp_auth.json().get("success") is True
     finally:
         update_settings({"ai_secret_token": orig_token})
 
@@ -214,19 +224,22 @@ def test_invalid_config_update_validation():
 
 def test_ai_model_loaded_and_predicts_correctly():
     """Verify local AI model is loaded, generates calibrated probabilities, and explains reasons."""
-    resp = client_ai.get("/api/ai/predict")
-    assert resp.status_code == 200
-    data = resp.json()
+    from data.fetcher import generate_synthetic_candles
+    mock_df = generate_synthetic_candles()
+    mock_df.attrs["source"] = "YAHOO"
+    with patch("ai.server.fetch_historical_candles", return_value=mock_df):
+        resp = client_ai.get("/api/ai/predict")
+        assert resp.status_code == 200
+        data = resp.json()
 
-    assert data.get("signal") in ("BUY", "SELL", "HOLD")
-    assert 0.0 <= data.get("confidence", 0.0) <= 100.0
-    assert data.get("model_accuracy", 0.0) > 0.0
-    assert len(data.get("reason", "")) > 10, "Decision reason must be descriptive and plain-English"
+        assert data.get("signal") in ("BUY", "SELL", "HOLD")
+        assert 0.0 <= data.get("confidence", 0.0) <= 100.0
+        assert len(data.get("reason", "")) > 10, "Decision reason must be descriptive and plain-English"
 
-    # Probabilities must sum to ~100%
-    probs = data.get("probabilities", {})
-    total_prob = sum(probs.values())
-    assert 99.0 <= total_prob <= 101.0, f"Class probabilities should sum to 100% (got {total_prob})"
+        # Probabilities must sum to ~100%
+        probs = data.get("probabilities", {})
+        total_prob = sum(probs.values())
+        assert 99.0 <= total_prob <= 101.0, f"Class probabilities should sum to 100% (got {total_prob})"
 
 
 def test_accuracy_trend_endpoint():
@@ -318,19 +331,25 @@ def test_real_money_auto_orders_completely_disabled():
 def test_guider_mode_directive_generation():
     """Verify GUIDER mode produces actionable human guidance directives without auto-trading."""
     from execution.engine import engine
+    from data.fetcher import generate_synthetic_candles
     orig_mode = settings.agent_mode
     orig_real = settings.real_orders_enabled
+    orig_synthetic = settings.allow_synthetic_data
     try:
-        update_settings({"agent_mode": "GUIDER", "real_orders_enabled": False})
-        res = engine.run_single_analysis()
-        assert res.get("success") is True
-        dec = res.get("decision", {})
-        assert "directive" in dec
-        assert "human_guidance" in dec
-        assert dec.get("real_orders_enabled") is False
-        assert dec.get("order_result") is None  # Zero auto-trading
+        update_settings({"agent_mode": "GUIDER", "real_orders_enabled": False, "allow_synthetic_data": True})
+        mock_df = generate_synthetic_candles()
+        mock_df.attrs["source"] = "YAHOO"
+        with patch("execution.engine.fetch_historical_candles", return_value=mock_df), \
+             patch("execution.engine.check_safety_gate", return_value={"allowed": True, "session_state": "ACTIVE", "reason": "Ready"}):
+            res = engine.run_single_analysis()
+            assert res.get("success") is True
+            dec = res.get("decision", {})
+            assert "directive" in dec
+            assert "human_guidance" in dec
+            assert dec.get("real_orders_enabled") is False
+            assert dec.get("order_result") is None  # Zero auto-trading
     finally:
-        update_settings({"agent_mode": orig_mode, "real_orders_enabled": orig_real})
+        update_settings({"agent_mode": orig_mode, "real_orders_enabled": orig_real, "allow_synthetic_data": orig_synthetic})
 
 
 def test_strict_1_to_3_risk_reward_and_1000_shares():
@@ -348,8 +367,9 @@ def test_strict_1_to_3_risk_reward_and_1000_shares():
     assert brackets_buy["estimated_max_risk_rupees"] == 2000.0  # 1000 * 2.0
     assert brackets_buy["estimated_target_profit_rupees"] == 6000.0  # 1000 * 6.0 (3x risk!)
 
-    # Test SELL brackets
-    brackets_sell = calculate_trade_brackets(entry_price=200.0, atr=3.0, side="SELL")
+    # Test SELL brackets with sufficient risk cap to allow 1000 shares
+    cfg = Settings(max_risk_per_trade_rupees=5000.0)
+    brackets_sell = calculate_trade_brackets(entry_price=200.0, atr=3.0, side="SELL", config=cfg)
     assert brackets_sell["risk_reward_ratio"] == "1:3.00"
     assert brackets_sell["suggested_quantity"] == 1000
     assert brackets_sell["risk_per_share"] == 3.0

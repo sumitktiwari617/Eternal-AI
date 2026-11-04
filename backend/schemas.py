@@ -19,8 +19,6 @@ class ConfigUpdateRequest(BaseModel):
     initial_capital: Optional[float] = None
     default_quantity: Optional[int] = None
     max_risk_per_trade_rupees: Optional[float] = None
-    enforce_market_hours: Optional[bool] = None
-    max_data_age_seconds: Optional[int] = None
 
 
 class BacktestRequest(BaseModel):

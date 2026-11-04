@@ -175,9 +175,69 @@ class KotakNeoAdapter:
                     "ltp": float(quote.get("ltp", 0.0)),
                     "timestamp": quote.get("lstup_time"),
                 }
-            return {"success": False, "error": "Empty quote response from Kotak Neo API."}
+            logger.warning(f"Empty quote response from Kotak Neo for token {tok}")
+            return {"success": False, "error": f"Empty quote response from Kotak Neo API for token {tok}."}
         except Exception as e:
+            logger.error(f"Quote request error on Kotak Neo for token {tok}: {e}")
             return {"success": False, "error": f"Quote request error: {str(e)}"}
+
+    def verify_instrument_token(
+        self,
+        token: Optional[str] = None,
+        segment: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Verifies if the configured token matches the expected trading symbol when authenticated.
+        Compares returned symbol fields from Kotak Neo against expected trading symbol.
+        """
+        tok = token or self.config.kotak_token
+        seg = segment or self.config.kotak_segment
+        expected_sym = self.get_trading_symbol()
+
+        if not self.is_authenticated or not self.client:
+            return {
+                "verified": False,
+                "token": tok,
+                "segment": seg,
+                "expected_symbol": expected_sym,
+                "actual_symbol": None,
+                "error": "Kotak Neo client not authenticated.",
+                "status": "UNAUTHENTICATED",
+            }
+
+        quote_res = self.get_live_quote(token=tok, segment=seg)
+        if not quote_res.get("success"):
+            return {
+                "verified": False,
+                "token": tok,
+                "segment": seg,
+                "expected_symbol": expected_sym,
+                "actual_symbol": None,
+                "error": quote_res.get("error", "Failed to fetch live quote for verification."),
+                "status": "QUOTE_FAILED",
+            }
+
+        q = quote_res.get("quote", {})
+        actual_sym = q.get("trdSym") or q.get("sym") or q.get("ts") or q.get("symbol") or q.get("display_name")
+        is_match = False
+        if actual_sym:
+            clean_actual = str(actual_sym).strip().upper()
+            clean_expected = str(expected_sym).strip().upper()
+            is_match = (
+                (clean_expected in clean_actual)
+                or (clean_actual in clean_expected)
+                or (clean_expected.replace("-EQ", "") in clean_actual)
+            )
+
+        return {
+            "verified": is_match,
+            "token": tok,
+            "segment": seg,
+            "expected_symbol": expected_sym,
+            "actual_symbol": actual_sym,
+            "ltp": quote_res.get("ltp"),
+            "status": "MATCH" if is_match else "MISMATCH",
+        }
 
     def get_trading_symbol(self, symbol: Optional[str] = None) -> str:
         """Formats an equity ticker to Kotak Neo standard (e.g. TATAMOTORS.NS -> TATAMOTORS-EQ)."""

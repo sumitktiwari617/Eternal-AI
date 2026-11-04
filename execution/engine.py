@@ -1,5 +1,5 @@
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import zoneinfo
 import pandas as pd
 
@@ -7,16 +7,28 @@ from config import Settings, settings as default_settings, update_settings
 from core.indicators import calculate_indicators
 from core.strategy import evaluate_signal
 from core.risk_manager import calculate_trade_brackets, check_safety_gate
-from data.fetcher import fetch_historical_candles, fetch_latest_quote
+from data.fetcher import fetch_historical_candles, fetch_latest_quote, DataUnavailableError
 from data.kotak_client import KotakNeoAdapter
-from execution.logger import record_analysis_log
+from execution.logger import record_analysis_log, record_advisory_log
+
+
+def parse_timeframe_minutes(tf: str) -> int:
+    """Parses timeframe string ('5m', '15m', '1h') to integer minutes."""
+    tf = tf.strip().lower()
+    if tf.endswith("m"):
+        return max(1, int(tf[:-1]))
+    if tf.endswith("h"):
+        return max(1, int(tf[:-1]) * 60)
+    if tf.endswith("d"):
+        return max(1, int(tf[:-1]) * 1440)
+    return 5
 
 
 class ExecutionEngine:
     """
     Central operational engine for ETERNAL Trading Agent.
-    Orchestrates market data fetching, safety gate verification,
-    indicator processing, strategy decision, and paper/live logging.
+    Strictly Read-Only Guider & Advisory System.
+    Real orders are permanently disabled.
     """
 
     def __init__(self, config: Optional[Settings] = None):
@@ -74,40 +86,85 @@ class ExecutionEngine:
         """
         Executes a single market inspection and decision cycle:
           1. Fetches latest candles & quote
-          2. Evaluates safety gates
-          3. Calculates technical indicators
-          4. Evaluates strategy signal
-          5. Calculates risk/bracket parameters
-          6. Records paper log
+          2. Enforces closed-candle only processing (drops in-progress candle)
+          3. Evaluates safety and market session gates
+          4. Computes indicators and strategy rules
+          5. Computes risk-capped brackets (brackets: null if HOLD/WAIT)
+          6. Records immutable audit logs
         """
         tz = zoneinfo.ZoneInfo(self.config.timezone)
         now = datetime.now(tz)
         self.last_analysis_time = now.isoformat()
+        tf_mins = parse_timeframe_minutes(self.config.timeframe)
 
-        # 1. Fetch market data
-        df = fetch_historical_candles(
-            symbol=self.config.symbol,
-            range_period="5d",
-            interval=self.config.timeframe,
-            config=self.config
-        )
         quote = fetch_latest_quote(symbol=self.config.symbol, config=self.config, kotak_adapter=self.kotak)
         self.last_quote = quote
 
-        if df is None or df.empty or len(df) < 5:
+        # 1. Fetch candles
+        try:
+            df = fetch_historical_candles(
+                symbol=self.config.symbol,
+                range_period="5d",
+                interval=self.config.timeframe,
+                config=self.config
+            )
+        except DataUnavailableError as e:
+            df = None
+            data_err = str(e)
+        except Exception as e:
+            df = None
+            data_err = str(e)
+
+        # 2. Guard: Data source validation
+        data_source = df.attrs.get("source", "UNKNOWN") if df is not None else "NONE"
+        is_live_source = data_source in ("YAHOO", "KOTAK_NEO_LIVE")
+
+        if df is None or df.empty or len(df) < 5 or not is_live_source:
+            self.last_decision = {
+                "timestamp": now.isoformat(),
+                "symbol": self.config.symbol,
+                "mode": self.config.agent_mode,
+                "signal": "WAIT",
+                "action": "DATA UNAVAILABLE",
+                "directive": "STATUS: WAIT. Market data is unavailable or not from a validated live source.",
+                "human_guidance": "Data feed unavailable or outside live market connection. Stand by.",
+                "reason": "DATA UNAVAILABLE / NOT LIVE",
+                "safety": {"allowed": False, "reason": "Data source is not live or unavailable", "status": "DATA_UNAVAILABLE"},
+                "quote": quote,
+                "indicators": None,
+                "brackets": None,
+                "data_source": data_source,
+                "real_orders_enabled": False,
+            }
             return {
                 "success": False,
-                "error": "Unable to fetch valid market candles.",
+                "error": "DATA UNAVAILABLE / NOT LIVE",
                 "quote": quote,
                 "signal": "WAIT",
-                "reason": "Market candle feed unavailable."
+                "reason": "DATA UNAVAILABLE / NOT LIVE",
+                "decision": self.last_decision,
             }
 
-        # 2. Check safety gates
-        latest_ts = df.index[-1] if isinstance(df.index, pd.DatetimeIndex) else None
-        safety = check_safety_gate(data_timestamp=latest_ts, config=self.config)
+        # 3. Closed candles only: Drop in-progress bar
+        latest_candle_start = df.index[-1]
+        if hasattr(latest_candle_start, "tzinfo") and latest_candle_start.tzinfo is None:
+            latest_candle_start = latest_candle_start.replace(tzinfo=tz)
 
-        # 3. Calculate indicators
+        candle_end_time = latest_candle_start + timedelta(minutes=tf_mins)
+        if candle_end_time > now:
+            # Drop incomplete candle
+            if len(df) > 1:
+                df = df.iloc[:-1]
+                latest_candle_start = df.index[-1]
+                if hasattr(latest_candle_start, "tzinfo") and latest_candle_start.tzinfo is None:
+                    latest_candle_start = latest_candle_start.replace(tzinfo=tz)
+                candle_end_time = latest_candle_start + timedelta(minutes=tf_mins)
+
+        # 4. Check safety & session gate (staleness evaluated from candle end time)
+        safety = check_safety_gate(data_timestamp=candle_end_time, config=self.config)
+        session_state = safety.get("session_state", "UNKNOWN")
+
+        # 5. Calculate indicators
         ind_df = calculate_indicators(
             df,
             ema_fast=self.config.ema_fast,
@@ -117,7 +174,7 @@ class ExecutionEngine:
         )
         latest_row = ind_df.iloc[-1]
 
-        # 4. Evaluate strategy
+        # 6. Evaluate strategy signal
         decision = evaluate_signal(latest_row, self.config)
         signal = decision["signal"]
         action = decision["action"]
@@ -127,81 +184,88 @@ class ExecutionEngine:
         # Override signal if safety gate blocked
         if not safety["allowed"]:
             signal = "WAIT"
-            action = "SAFETY BLOCKED"
+            action = f"SAFETY: {session_state}"
             reason = f"Safety Gate Blocked: {safety['reason']}"
 
-        # 5. Calculate trade brackets
+        # 7. Calculate brackets (only when signal is BUY or SELL, otherwise brackets: None)
         price = float(latest_row["close"])
         atr = float(latest_row.get(f"ATR{self.config.atr_period}", 1.0))
-        brackets = calculate_trade_brackets(
-            entry_price=price,
-            atr=atr,
-            side=signal if signal in ("BUY", "SELL") else "BUY",
-            config=self.config
-        )
-
-        # 6. Generate Actionable Human Guider Directives (Strict 1:3 Risk-to-Reward on 1,000 Shares)
         scrip = self.kotak.get_trading_symbol(self.config.symbol)
-        qty = int(getattr(self.config, "default_quantity", 1000))
-        target_price = brackets.get("target", price)
-        stop_loss_price = brackets.get("stop_loss", price)
-        risk_per_sh = brackets.get("risk_per_share", 0.0)
-        reward_per_sh = brackets.get("reward_per_share", 0.0)
-        total_risk = brackets.get("estimated_max_risk_rupees", qty * risk_per_sh)
-        total_profit = brackets.get("estimated_target_profit_rupees", qty * reward_per_sh)
+        brackets = None
 
-        # Enforce strict 1:3 Risk:Reward validation filter
-        if signal in ("BUY", "SELL"):
-            if risk_per_sh <= 0 or reward_per_sh < (risk_per_sh * 2.95):
+        if signal in ("BUY", "SELL") and safety["allowed"]:
+            brackets = calculate_trade_brackets(
+                entry_price=price,
+                atr=atr,
+                side=signal,
+                config=self.config
+            )
+
+            if brackets is None:
+                # Risk per trade cap was exceeded or size < 1
                 signal = "WAIT"
-                action = "GUIDER: 1:3 RATIO FILTERED"
-                reason += " | Setup filtered out: Does not satisfy strict 1:3 Risk-to-Reward ratio."
-                directive = f"STATUS: WAIT / HOLD. Setup on {scrip} does not meet strict 1:3 profit-to-loss criteria."
-                human_guidance = "Only trades with exact 1:3 Risk-to-Reward (₹1 risk vs ₹3 profit) are suggested. Wait for the next setup."
-            elif signal == "BUY":
-                directive = (
-                    f"ACTION: BUY 1000 SHARES of {scrip} around ₹{price:.2f} | "
-                    f"TARGET: ₹{target_price:.2f} (+₹{total_profit:,.2f}) | "
-                    f"STOP LOSS: ₹{stop_loss_price:.2f} (-₹{total_risk:,.2f}) | "
-                    f"STRICT 1:3 RISK-TO-REWARD"
-                )
-                human_guidance = (
-                    f"Open Kotak Neo app -> Place BUY order for 1,000 shares of {scrip} around ₹{price:.2f}. "
-                    f"Set Target at ₹{target_price:.2f} (Profit: ₹{total_profit:,.2f}) and "
-                    f"Stop Loss at ₹{stop_loss_price:.2f} (Risk: ₹{total_risk:,.2f}). Profit is exactly 3x your Risk."
-                )
-                action = f"GUIDER ADVISORY: BUY 1000 {scrip} (1:3 R:R)"
-            elif signal == "SELL":
-                directive = (
-                    f"ACTION: SELL / SHORT 1000 SHARES of {scrip} around ₹{price:.2f} | "
-                    f"TARGET: ₹{target_price:.2f} (+₹{total_profit:,.2f}) | "
-                    f"STOP LOSS: ₹{stop_loss_price:.2f} (-₹{total_risk:,.2f}) | "
-                    f"STRICT 1:3 RISK-TO-REWARD"
-                )
-                human_guidance = (
-                    f"Open Kotak Neo app -> Place SELL order for 1,000 shares of {scrip} around ₹{price:.2f}. "
-                    f"Set Target at ₹{target_price:.2f} (Profit: ₹{total_profit:,.2f}) and "
-                    f"Stop Loss at ₹{stop_loss_price:.2f} (Risk: ₹{total_risk:,.2f}). Profit is exactly 3x your Risk."
-                )
-                action = f"GUIDER ADVISORY: SELL 1000 {scrip} (1:3 R:R)"
-        else:
-            directive = f"STATUS: WAIT / HOLD. No high-probability 1:3 Risk-to-Reward setup on {scrip}."
-            human_guidance = "Market is consolidating or Risk:Reward < 1:3. Stay in cash and wait for the next optimal 1:3 setup."
-            action = "GUIDER: WAIT / HOLD (1:3 FILTER)"
+                action = "RISK CAP FILTERED"
+                reason += " | Trade filtered: Position risk would exceed max_risk_per_trade_rupees."
+                directive = f"STATUS: WAIT / HOLD. Setup on {scrip} exceeds allowable risk cap."
+                human_guidance = "Risk exceeds configured cap. Wait for volatility contraction."
+            else:
+                qty = brackets["suggested_quantity"]
+                target_price = brackets["target"]
+                stop_loss_price = brackets["stop_loss"]
+                total_risk = brackets["estimated_max_risk_rupees"]
+                total_profit = brackets["estimated_target_profit_rupees"]
 
-        # 7. Log analysis record (Guider advisory log)
-        log_entry = record_analysis_log(
+                directive = (
+                    f"ACTION: {signal} {qty} SHARES of {scrip} around ₹{price:.2f} | "
+                    f"TARGET: ₹{target_price:.2f} (+₹{total_profit:,.2f}) | "
+                    f"STOP LOSS: ₹{stop_loss_price:.2f} (-₹{total_risk:,.2f}) | "
+                    f"STRICT 1:3 RISK-TO-REWARD"
+                )
+                human_guidance = (
+                    f"Open Kotak Neo app -> Place {signal} order for {qty:,} shares of {scrip} around ₹{price:.2f}. "
+                    f"Set Target at ₹{target_price:.2f} (Profit: ₹{total_profit:,.2f}) and "
+                    f"Stop Loss at ₹{stop_loss_price:.2f} (Risk: ₹{total_risk:,.2f})."
+                )
+                action = f"GUIDER ADVISORY: {signal} {qty} {scrip} (1:3 R:R)"
+
+                # Record issued advisory to advisories.jsonl
+                record_advisory_log(
+                    candle_timestamp=latest_candle_start.isoformat(),
+                    data_source=data_source,
+                    symbol=self.config.symbol,
+                    side=signal,
+                    entry_price=price,
+                    stop_loss=stop_loss_price,
+                    target=target_price,
+                    quantity=qty,
+                    directive=directive,
+                    reason=reason,
+                    session_state=session_state,
+                    config=self.config
+                )
+        else:
+            brackets = None
+            directive = f"STATUS: WAIT / HOLD. No active trade advisory for {scrip}."
+            human_guidance = "Market is in waiting period or conditions are not met. Stand by in cash."
+            if signal != "WAIT":
+                signal = "WAIT"
+
+        # 8. Record paper journal log
+        record_analysis_log(
             signal=signal,
             action=action,
             reason=reason,
             indicators=indicators,
             brackets=brackets,
             order_result=None,
+            data_source=data_source,
+            session_state=session_state,
             config=self.config
         )
 
         self.last_decision = {
             "timestamp": now.isoformat(),
+            "candle_timestamp": latest_candle_start.isoformat(),
             "symbol": self.config.symbol,
             "mode": self.config.agent_mode,
             "signal": signal,
@@ -213,6 +277,8 @@ class ExecutionEngine:
             "quote": quote,
             "indicators": indicators,
             "brackets": brackets,
+            "data_source": data_source,
+            "session_state": session_state,
             "real_orders_enabled": False,
         }
 
