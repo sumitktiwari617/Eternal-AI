@@ -45,3 +45,4 @@ NGROK_AUTHTOKEN=your_ngrok_token_here
 - **Local AI Health**: Open [http://127.0.0.1:8001/health](http://127.0.0.1:8001/health) in your browser -> Returns `{"status": "healthy"}`.
 - **Local Prediction**: Open [http://127.0.0.1:8001/api/ai/predict](http://127.0.0.1:8001/api/ai/predict) -> Returns current signal, calibrated confidence, ATR brackets, and market state.
 - **Accuracy History**: Open [http://127.0.0.1:8001/api/ai/accuracy-trend](http://127.0.0.1:8001/api/ai/accuracy-trend) -> Returns measured learning history.
+

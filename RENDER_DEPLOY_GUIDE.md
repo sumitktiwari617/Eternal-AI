@@ -60,3 +60,4 @@ Render will read `render.yaml` automatically from your repo:
    ```
 2. Paste this URL into your **Vercel Frontend Settings** (under Render Backend URL).
 3. On your laptop, run **`start.bat`** (Option 1) to connect your laptop's AI model tunnel to this Render backend.
+
