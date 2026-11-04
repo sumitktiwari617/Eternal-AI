@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ETERNAL AI Trading Agent — Live Terminal</title>
+  <link rel="stylesheet" href="/static/style.css?v=2.3">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Header Bar -->
+  <header class="header">
+    <div class="logo-area">
+      <div class="logo-icon">⚡</div>
+      <div>
+        <h1 class="logo-title">ETERNAL <span class="logo-badge">AI PRO</span></h1>
+        <p class="logo-subtitle">Autonomous Self-Learning Quantitative Trading Engine</p>
+      </div>
+    </div>
+
+    <!-- Live Telemetry -->
+    <div class="telemetry-bar">
+      <div class="telemetry-item">
+        <span class="label">ASSET</span>
+        <span class="val font-mono" id="header-symbol">ETERNAL.NS</span>
+      </div>
+      <div class="telemetry-item">
+        <span class="label">TIMEFRAME</span>
+        <span class="val font-mono" id="header-timeframe">5m</span>
+      </div>
+      <div class="telemetry-item">
+        <span class="label">STATE</span>
+        <span class="status-pill status-idle" id="header-state">IDLE</span>
+      </div>
+      <div class="telemetry-item">
+        <span class="label">MODE</span>
+        <span class="mode-pill mode-paper" id="header-mode">PAPER ONLY</span>
+      </div>
+      <div class="telemetry-item">
+        <span class="label">TIME (IST)</span>
+        <span class="val font-mono text-muted" id="header-time">--:--:--</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="nav-tabs">
+    <button class="nav-btn active" data-tab="tab-dashboard">📊 Live Dashboard</button>
+    <button class="nav-btn" data-tab="tab-chart">📈 Chart & Indicators</button>
+    <button class="nav-btn" data-tab="tab-backtest">⚡ Backtest Suite</button>
+    <button class="nav-btn" data-tab="tab-logs">📜 Audit Log</button>
+    <button class="nav-btn" data-tab="tab-settings">⚙️ Settings & API</button>
+  </nav>
+
+  <!-- Main Container -->
+  <main class="main-content">
+
+    <!-- ==================== TAB 1: LIVE DASHBOARD ==================== -->
+    <section id="tab-dashboard" class="tab-pane active">
+      <!-- Control Command Bar -->
+      <div class="card control-bar">
+        <div class="control-actions">
+          <button id="btn-start" class="btn btn-success">▶ Start Agent</button>
+          <button id="btn-pause" class="btn btn-warning">⏸ Pause</button>
+          <button id="btn-analyze" class="btn btn-primary">🔍 Instant Analysis</button>
+          <button id="btn-reset" class="btn btn-secondary">🔄 Reset / Unlock</button>
+          <button id="btn-stop" class="btn btn-danger">🛑 EMERGENCY STOP</button>
+        </div>
+        <div class="control-extra">
+          <label class="switch-container">
+            <span class="label">Operating Mode:</span>
+            <select id="select-mode" class="input-select">
+              <option value="GUIDER" selected>AI GUIDER (Signals & Suggestions — You Trade)</option>
+              <option value="PAPER">PAPER SIMULATION</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <!-- AI Trade Copilot Action Directive Banner (What You Should Do Now) -->
+      <div class="card mb-4" id="copilot-banner-card" style="border: 2px solid #0284c7; background: linear-gradient(135deg, rgba(2,132,199,0.12) 0%, rgba(15,23,42,0.95) 100%);">
+        <div class="card-header" style="border-bottom: 1px solid rgba(2,132,199,0.3); padding-bottom: 8px;">
+          <div class="flex-row gap-2 align-center">
+            <span style="font-size: 1.25rem;">📢</span>
+            <h3 style="color: #38bdf8; font-size: 1.05rem; letter-spacing: 0.05em;">AI TRADING COPILOT: WHAT YOU SHOULD DO NOW</h3>
+          </div>
+          <span class="status-pill status-running font-mono" id="copilot-mode-tag">MODE: COPILOT (YOU TRADE)</span>
+        </div>
+        <div style="padding: 16px;">
+          <div class="flex-row justify-between align-center flex-wrap gap-2 mb-2">
+            <div class="font-mono font-bold" id="copilot-action-directive" style="color: #f1f5f9; font-size: 1.25rem;">
+              ANALYZING MARKET FOR OPTIMAL SETUP...
+            </div>
+            <div class="font-mono text-xs text-muted" id="copilot-timestamp">Just now</div>
+          </div>
+          <div class="font-mono text-sm text-cyan mb-2" id="copilot-human-guidance">
+            The AI continuously monitors your Kotak Neo feed and filters only trades with strict 1:3 Risk-to-Reward on 1,000 shares.
+          </div>
+          <div class="grid-4col font-mono text-xs pt-2 mb-2" style="border-top: 1px solid rgba(255,255,255,0.08);">
+            <div><span class="label">RECOMMENDED ACTION:</span> <span class="val font-bold text-amber" id="copilot-pill-action">WAIT / HOLD</span></div>
+            <div><span class="label">POSITION SIZE:</span> <span class="val font-bold text-white">1,000 Shares</span></div>
+            <div><span class="label">RISK-REWARD RATIO:</span> <span class="val font-bold text-emerald">1:3.00 (Risk ₹1 vs Profit ₹3)</span></div>
+            <div><span class="label">ENTRY PRICE:</span> <span class="val text-white" id="copilot-entry-price">--</span></div>
+          </div>
+          <div class="grid-4col font-mono text-xs pt-2" style="border-top: 1px dashed rgba(255,255,255,0.08);">
+            <div><span class="label">STOP-LOSS PRICE:</span> <span class="val text-rose font-bold" id="copilot-sl-price">--</span></div>
+            <div><span class="label">TARGET PRICE:</span> <span class="val text-emerald font-bold" id="copilot-target-price">--</span></div>
+            <div><span class="label">MAX RISK (1000 QTY):</span> <span class="val text-rose font-bold" id="copilot-total-risk">--</span></div>
+            <div><span class="label">TARGET PROFIT (1000 QTY):</span> <span class="val text-emerald font-bold" id="copilot-total-profit">--</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hero Grid: AI Prediction + Market Quote -->
+      <div class="grid-2col">
+        <!-- AI Machine Learning Prediction & Explainable Reason Box -->
+        <div class="card signal-card">
+          <div class="card-header">
+            <h3>🤖 AUTONOMOUS AI PREDICTION (SELF-LEARNING)</h3>
+            <div class="flex-row gap-2">
+              <span class="badge badge-pulse font-mono" id="ai-accuracy-badge">Model Accuracy: --%</span>
+              <span class="badge font-mono" id="ai-source-badge" style="background: #1e293b; color: #38bdf8; border: 1px solid #0284c7;">Model: Localhost</span>
+              <span class="badge" id="signal-updated">Just now</span>
+            </div>
+          </div>
+          <div class="signal-display">
+            <div class="signal-badge badge-wait" id="signal-badge">HOLD</div>
+            <div class="signal-details">
+              <div class="flex-row gap-2 align-center mb-1">
+                <span class="label">AI CONFIDENCE:</span>
+                <span class="val font-mono font-bold text-cyan" id="ai-confidence-val">--%</span>
+                <div class="confidence-bar-wrapper">
+                  <div class="confidence-bar-fill" id="ai-confidence-bar" style="width: 50%;"></div>
+                </div>
+              </div>
+              <div class="probability-pills font-mono text-xs">
+                <span class="prob-pill prob-buy" id="prob-buy">BUY: --%</span>
+                <span class="prob-pill prob-hold" id="prob-hold">HOLD: --%</span>
+                <span class="prob-pill prob-sell" id="prob-sell">SELL: --%</span>
+              </div>
+              <div class="ai-reason-box mt-2">
+                <div class="reason-header">💡 DECISION REASON:</div>
+                <p class="signal-reason font-mono" id="signal-reason">Initializing self-learning model and evaluating market features...</p>
+              </div>
+              <div class="signal-meta font-mono mt-1" id="signal-meta">Safety Status: Ready | Last Retrained: Checking...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Market Quote Card -->
+        <div class="card quote-card">
+          <div class="card-header">
+            <h3>MARKET TELEMETRY (KOTAK NEO / LIVE FEED)</h3>
+            <span class="badge badge-pulse" id="quote-freshness">Live Feed</span>
+          </div>
+          <div class="quote-display">
+            <div class="price-big font-mono" id="quote-ltp">₹322.60</div>
+            <div class="price-change font-mono" id="quote-change">+2.60 (+0.81%)</div>
+          </div>
+          <div class="quote-stats grid-4col font-mono">
+            <div><span class="label">OPEN</span><span class="val" id="quote-open">₹320.00</span></div>
+            <div><span class="label">HIGH</span><span class="val" id="quote-high">₹324.50</span></div>
+            <div><span class="label">LOW</span><span class="val" id="quote-low">₹319.50</span></div>
+            <div><span class="label">VOL</span><span class="val" id="quote-vol">125K</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Indicators Grid -->
+      <div class="grid-4col mt-4">
+        <div class="card indicator-card">
+          <span class="label">EMA Fast (20)</span>
+          <div class="indicator-value font-mono" id="ind-ema-fast">₹--.--</div>
+          <div class="indicator-status text-cyan" id="ind-ema-status">Trend Baseline</div>
+        </div>
+
+        <div class="card indicator-card">
+          <span class="label">EMA Slow (50)</span>
+          <div class="indicator-value font-mono" id="ind-ema-slow">₹--.--</div>
+          <div class="indicator-status text-cyan" id="ind-trend-status">Macro Direction</div>
+        </div>
+
+        <div class="card indicator-card">
+          <span class="label">Intraday VWAP</span>
+          <div class="indicator-value font-mono" id="ind-vwap">₹--.--</div>
+          <div class="indicator-status text-amber" id="ind-vwap-status">Volume Benchmark</div>
+        </div>
+
+        <div class="card indicator-card">
+          <span class="label">RSI (14 Wilder's)</span>
+          <div class="indicator-value font-mono" id="ind-rsi">--.--</div>
+          <div class="rsi-bar-container">
+            <div class="rsi-bar" id="ind-rsi-bar" style="width: 50%;"></div>
+          </div>
+          <div class="indicator-status text-muted" id="ind-rsi-status">Momentum (30-70)</div>
+        </div>
+      </div>
+
+      <!-- Trade Brackets & Risk Sizing Card -->
+      <div class="card mt-4">
+        <div class="card-header">
+          <h3>DYNAMIC RISK & BRACKET SIZING (ATR BASED)</h3>
+          <span class="badge font-mono" id="bracket-atr-info">ATR 14: ₹--.--</span>
+        </div>
+        <div class="grid-4col font-mono brackets-grid">
+          <div class="bracket-item">
+            <span class="label">SUGGESTED ENTRY</span>
+            <span class="val font-bold text-white" id="bracket-entry">₹--.--</span>
+          </div>
+          <div class="bracket-item">
+            <span class="label">STOP-LOSS (1.5x ATR)</span>
+            <span class="val font-bold text-rose" id="bracket-stop">₹--.--</span>
+          </div>
+          <div class="bracket-item">
+            <span class="label">TARGET (2.0x ATR)</span>
+            <span class="val font-bold text-emerald" id="bracket-target">₹--.--</span>
+          </div>
+          <div class="bracket-item">
+            <span class="label">RISK / REWARD</span>
+            <span class="val font-bold text-cyan" id="bracket-rr">1 : 1.33</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Autonomous Day-by-Day Learning & Accuracy Growth Card -->
+      <div class="card mt-4">
+        <div class="card-header">
+          <h3>📈 AUTONOMOUS DAY-BY-DAY SELF-LEARNING & ACCURACY GROWTH</h3>
+          <span class="badge badge-pulse">100% Background Automation • No Train Buttons</span>
+        </div>
+        <div class="grid-2col mt-2">
+          <div>
+            <p class="text-muted text-sm">
+              The AI automatically trains on 6 months of historical data on startup, tracks market moves from 09:15 AM to 03:30 PM, and retrains its weights locally at market close. If your computer was turned off, it auto-syncs missing days on next boot.
+            </p>
+            <div class="mt-3">
+              <span class="label">LEARNING HISTORY TIMELINE:</span>
+              <ul class="learning-timeline font-mono text-xs mt-1" id="learning-timeline-list">
+                <li>Loading auto-learning history...</li>
+              </ul>
+            </div>
+          </div>
+          <div>
+            <span class="label">MODEL ACCURACY TREND (%):</span>
+            <div class="accuracy-chart-wrapper mt-1">
+              <canvas id="accuracy-chart" height="150"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 2: CHART & INDICATORS ==================== -->
+    <section id="tab-chart" class="tab-pane">
+      <div class="card">
+        <div class="card-header">
+          <h3>CANDLESTICK & MOVING AVERAGE VISUALIZER</h3>
+          <div class="flex-row gap-2">
+            <button id="btn-refresh-chart" class="btn btn-secondary btn-sm">🔄 Refresh Data</button>
+          </div>
+        </div>
+        <div class="chart-canvas-container" id="chart-canvas-wrapper">
+          <canvas id="price-chart" height="350"></canvas>
+        </div>
+      </div>
+
+      <!-- Detailed Indicator Table -->
+      <div class="card mt-4">
+        <div class="card-header">
+          <h3>RECENT 5-MINUTE CANDLES & INDICATOR VALUES</h3>
+        </div>
+        <div class="table-responsive">
+          <table class="table font-mono" id="candles-table">
+            <thead>
+              <tr>
+                <th>Timestamp (IST)</th>
+                <th>Open</th>
+                <th>High</th>
+                <th>Low</th>
+                <th>Close</th>
+                <th>Volume</th>
+                <th>EMA20</th>
+                <th>EMA50</th>
+                <th>VWAP</th>
+                <th>RSI14</th>
+                <th>ATR14</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="11" class="text-center">Loading candle stream...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 3: BACKTEST SUITE ==================== -->
+    <section id="tab-backtest" class="tab-pane">
+      <div class="card">
+        <div class="card-header">
+          <h3>HISTORICAL STRATEGY BACKTEST CONFIGURATION</h3>
+        </div>
+        <form id="backtest-form" class="grid-4col mt-2">
+          <div class="form-group">
+            <label class="label">SYMBOL</label>
+            <input type="text" id="bt-symbol" class="input-text font-mono" value="ETERNAL.NS">
+          </div>
+          <div class="form-group">
+            <label class="label">HISTORICAL RANGE</label>
+            <select id="bt-range" class="input-select">
+              <option value="5d">Last 5 Days</option>
+              <option value="1mo">Last 1 Month</option>
+              <option value="60d" selected>Last 60 Days</option>
+              <option value="6mo">Last 6 Months</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="label">INITIAL CAPITAL (₹)</label>
+            <input type="number" id="bt-capital" class="input-text font-mono" value="100000">
+          </div>
+          <div class="form-group">
+            <label class="label">QUANTITY / TRADE</label>
+            <input type="number" id="bt-qty" class="input-text font-mono" value="100">
+          </div>
+          <div class="form-group">
+            <label class="label">STOP-LOSS ATR MULTIPLIER</label>
+            <input type="number" step="0.1" id="bt-sl-mult" class="input-text font-mono" value="1.5">
+          </div>
+          <div class="form-group">
+            <label class="label">TARGET ATR MULTIPLIER</label>
+            <input type="number" step="0.1" id="bt-tp-mult" class="input-text font-mono" value="2.0">
+          </div>
+          <div class="form-group span-2">
+            <label class="label">&nbsp;</label>
+            <button type="submit" id="btn-run-backtest" class="btn btn-primary w-full">⚡ Execute Backtest</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Backtest Summary Metrics Cards -->
+      <div class="grid-4col mt-4" id="bt-metrics-container" style="display: none;">
+        <div class="card metric-card">
+          <span class="label">WIN RATE</span>
+          <div class="metric-val font-mono text-emerald" id="bt-win-rate">0.0%</div>
+          <div class="metric-sub font-mono" id="bt-trades-count">0 Trades (0 Wins / 0 Losses)</div>
+        </div>
+        <div class="card metric-card">
+          <span class="label">NET P&L (AFTER FRICTION)</span>
+          <div class="metric-val font-mono" id="bt-net-pnl">₹0.00</div>
+          <div class="metric-sub font-mono" id="bt-gross-pnl">Gross: ₹0.00 | Costs: ₹0.00</div>
+        </div>
+        <div class="card metric-card">
+          <span class="label">PROFIT FACTOR</span>
+          <div class="metric-val font-mono text-cyan" id="bt-profit-factor">0.0</div>
+          <div class="metric-sub font-mono" id="bt-roc">Return on Cap: 0.0%</div>
+        </div>
+        <div class="card metric-card">
+          <span class="label">MAX DRAWDOWN</span>
+          <div class="metric-val font-mono text-rose" id="bt-max-dd">₹0.00</div>
+          <div class="metric-sub font-mono" id="bt-max-dd-pct">Peak Drawdown: 0.0%</div>
+        </div>
+      </div>
+
+      <!-- Completed Trades Table -->
+      <div class="card mt-4" id="bt-trades-card" style="display: none;">
+        <div class="card-header">
+          <h3>COMPLETED BACKTEST TRADES</h3>
+          <span class="badge font-mono" id="bt-trades-badge">Exported to CSV</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table font-mono" id="bt-trades-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Side</th>
+                <th>Entry Time</th>
+                <th>Exit Time</th>
+                <th>Entry (₹)</th>
+                <th>Exit (₹)</th>
+                <th>Gross P&L</th>
+                <th>Costs</th>
+                <th>Net P&L</th>
+                <th>Exit Reason</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 4: AUDIT LOG ==================== -->
+    <section id="tab-logs" class="tab-pane">
+      <div class="card">
+        <div class="card-header">
+          <h3>PAPER TRADING JOURNAL & AUDIT TRAIL</h3>
+          <div class="flex-row gap-2">
+            <button id="btn-refresh-logs" class="btn btn-secondary btn-sm">🔄 Refresh Logs</button>
+            <button id="btn-clear-logs" class="btn btn-danger btn-sm">🗑 Clear Journal</button>
+          </div>
+        </div>
+        <div class="table-responsive mt-2">
+          <table class="table font-mono" id="audit-table">
+            <thead>
+              <tr>
+                <th>Time (IST)</th>
+                <th>Symbol</th>
+                <th>Mode</th>
+                <th>Signal</th>
+                <th>Action</th>
+                <th>Price</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="7" class="text-center">No log entries found.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 5: SETTINGS & CONFIG ==================== -->
+    <section id="tab-settings" class="tab-pane">
+      <div class="card">
+        <div class="card-header">
+          <h3>DYNAMIC AGENT CONFIGURATION (ZERO HARDCODED VALUES)</h3>
+          <button id="btn-save-settings" class="btn btn-primary">💾 Save Configuration</button>
+        </div>
+        <form id="settings-form" class="grid-3col mt-3">
+          <div class="form-group">
+            <label class="label">Target Symbol</label>
+            <input type="text" id="cfg-symbol" class="input-text font-mono">
+          </div>
+          <div class="form-group">
+            <label class="label">Exchange</label>
+            <input type="text" id="cfg-exchange" class="input-text font-mono">
+          </div>
+          <div class="form-group">
+            <label class="label">Candle Timeframe</label>
+            <select id="cfg-timeframe" class="input-select">
+              <option value="1m">1 Minute</option>
+              <option value="5m">5 Minutes</option>
+              <option value="15m">15 Minutes</option>
+              <option value="1h">1 Hour</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="label">Fast EMA Period</label>
+            <input type="number" id="cfg-ema-fast" class="input-text font-mono">
+          </div>
+          <div class="form-group">
+            <label class="label">Slow EMA Period</label>
+            <input type="number" id="cfg-ema-slow" class="input-text font-mono">
+          </div>
+          <div class="form-group">
+            <label class="label">RSI Period</label>
+            <input type="number" id="cfg-rsi-period" class="input-text font-mono">
+          </div>
+          <div class="form-group">
+            <label class="label">RSI Buy Bounds (Min - Max)</label>
+            <div class="flex-row gap-2">
+              <input type="number" id="cfg-rsi-buy-min" class="input-text font-mono" placeholder="50">
+              <input type="number" id="cfg-rsi-buy-max" class="input-text font-mono" placeholder="70">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="label">RSI Sell Bounds (Min - Max)</label>
+            <div class="flex-row gap-2">
+              <input type="number" id="cfg-rsi-sell-min" class="input-text font-mono" placeholder="30">
+              <input type="number" id="cfg-rsi-sell-max" class="input-text font-mono" placeholder="50">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="label">ATR Period</label>
+            <input type="number" id="cfg-atr-period" class="input-text font-mono">
+          </div>
+          <div class="form-group">
+            <label class="label">Stop-Loss ATR Multiplier</label>
+            <input type="number" step="0.1" id="cfg-sl-mult" class="input-text font-mono">
+          </div>
+          <div class="form-group">
+            <label class="label">Target ATR Multiplier</label>
+            <input type="number" step="0.1" id="cfg-tp-mult" class="input-text font-mono">
+          </div>
+          <div class="form-group">
+            <label class="label">Initial Capital (₹)</label>
+            <input type="number" id="cfg-capital" class="input-text font-mono">
+          </div>
+          <div class="form-group">
+            <label class="label">Max Risk Per Trade (₹)</label>
+            <input type="number" id="cfg-max-risk" class="input-text font-mono">
+          </div>
+          <div class="form-group">
+            <label class="label">Enforce Market Hours (9:15-15:30 IST)</label>
+            <select id="cfg-market-hours" class="input-select">
+              <option value="false">False (Run 24/7 for Testing)</option>
+              <option value="true">True (Strict Market Hours)</option>
+            </select>
+          </div>
+        </form>
+      </div>
+
+      <!-- Cloud Deployment & Hybrid Tunnel Connection Card -->
+      <div class="card mt-4">
+        <div class="card-header">
+          <h3>🌐 HYBRID CLOUD DEPLOYMENT (VERCEL + RENDER + LOCAL AI TUNNEL)</h3>
+          <div class="flex-row gap-2">
+            <span class="badge font-mono" id="render-backend-badge">Backend: Checking...</span>
+            <span class="badge font-mono" id="local-ai-status-badge">AI Tunnel: Checking...</span>
+          </div>
+        </div>
+        <div class="grid-2col mt-3">
+          <!-- Render Backend Config -->
+          <div>
+            <h4 class="text-sm font-bold text-cyan mb-1">1. Render Backend REST API Endpoint:</h4>
+            <p class="text-muted text-xs">If this UI is hosted on Vercel, connect it to your Render backend instance:</p>
+            <div class="flex-row gap-2 mt-2">
+              <input type="text" id="cfg-render-backend-url" class="input-text font-mono" placeholder="https://eternal-trading-backend.onrender.com">
+              <button id="btn-save-backend-url" class="btn btn-primary" type="button">Save Backend</button>
+              <button id="btn-test-backend-conn" class="btn btn-secondary" type="button">Test Backend</button>
+            </div>
+            <p class="text-muted text-xs mt-1">Leave empty to use current origin (for local execution).</p>
+          </div>
+
+          <!-- AI Model Local / Tunnel Config -->
+          <div>
+            <h4 class="text-sm font-bold text-amber mb-1">2. Localhost AI Model / Tunnel URL:</h4>
+            <p class="text-muted text-xs">Point to your local machine (e.g. <code>http://127.0.0.1:8001</code> or ngrok tunnel):</p>
+            <div class="flex-row gap-2 mt-2">
+              <input type="text" id="cfg-local-ai-url" class="input-text font-mono" placeholder="http://127.0.0.1:8001" value="http://127.0.0.1:8001">
+              <input type="password" id="cfg-ai-secret-token" class="input-text font-mono" placeholder="Secret Token (Optional)" style="max-width: 150px;">
+              <button id="btn-save-ai-url" class="btn btn-primary" type="button">Save AI</button>
+              <button id="btn-test-ai-conn" class="btn btn-secondary" type="button">Test AI</button>
+            </div>
+            <p class="text-muted text-xs mt-1">Start local model with <code>start_ai_tunnel.bat</code> or <code>start_ai_model.bat</code>.</p>
+          </div>
+        </div>
+
+        <div class="mt-3 font-mono text-xs text-muted" id="local-ai-telemetry-box" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
+          <div class="grid-3col">
+            <div>Render Backend: <span id="tele-backend-status" class="text-white">--</span></div>
+            <div>AI Model Endpoint: <span id="tele-ai-endpoint" class="text-cyan">http://127.0.0.1:8001</span></div>
+            <div>AI Service Status: <span id="tele-ai-status" class="text-emerald">Ready</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Kotak Neo Integration Status -->
+      <div class="card mt-4">
+        <div class="card-header">
+          <h3>KOTAK NEO BROKER INTEGRATION</h3>
+        </div>
+        <div class="grid-2col mt-2">
+          <div>
+            <p class="text-muted">The system connects to Kotak Neo for real-time exchange quotes and orders when configured in your <code>.env</code> file.</p>
+            <ul class="list-disc ml-4 mt-2 text-muted font-mono text-sm" id="kotak-status-list">
+              <li>SDK Installed: Checking...</li>
+              <li>Credentials: Checking...</li>
+              <li>Authentication: Checking...</li>
+            </ul>
+          </div>
+          <div>
+            <label class="label">Kotak Neo 2FA Daily Login</label>
+            <div class="flex-row gap-2 mt-1">
+              <input type="text" id="kotak-totp-input" class="input-text font-mono" placeholder="6-digit TOTP">
+              <input type="password" id="kotak-mpin-input" class="input-text font-mono" placeholder="6-digit MPIN" style="max-width: 140px;">
+              <button id="btn-kotak-login" class="btn btn-secondary">Submit Login</button>
+            </div>
+            <p class="text-muted text-xs mt-1">Requires Consumer Key & UCC in your <code>.env</code> file. Leave empty for Paper simulation.</p>
+          </div>
+        </div>
+
+        <!-- Read-Only Broker Telemetry & Holdings Inspector -->
+        <div class="mt-4 pt-3" style="border-top: 1px solid rgba(255,255,255,0.08);">
+          <div class="flex-row justify-between align-center mb-2">
+            <div>
+              <h4 class="text-sm font-bold text-emerald">Kotak Neo Live Account & Positions Telemetry (Read-Only)</h4>
+              <p class="text-muted text-xs">Used strictly for real-time market data feed. All trades are executed manually by you on your app.</p>
+            </div>
+            <button id="btn-fetch-orders" class="btn btn-secondary btn-sm" type="button">🔄 Inspect Positions & Holdings</button>
+          </div>
+          <div id="order-status-msg" class="text-xs font-mono mt-2 text-muted">Click inspect to view current account positions.</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Notification Toast Container -->
+  <div id="toast" class="toast"></div>
+
+  <!-- App JavaScript -->
+  <script src="/static/app.js?v=2.3"></script>
+</body>
+</html>

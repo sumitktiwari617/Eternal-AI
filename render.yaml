@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: eternal-trading-backend
+    runtime: python
+    region: singapore # or oregon / frankfurt
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.8
+      - key: AGENT_MODE
+        value: PAPER
+      - key: REAL_ORDERS_ENABLED
+        value: "false"
+      - key: SYMBOL
+        value: ETERNAL.NS
+      - key: TIMEFRAME
+        value: 5m
+      - key: AI_MODEL_SERVICE_URL
+        sync: false # Set in Render Dashboard: your ngrok/tunnel URL (e.g. https://xxx.ngrok-free.app)
+      - key: AI_SECRET_TOKEN
+        sync: false # Optional: Secret token to authenticate tunnel requests
+      - key: CORS_ORIGINS
+        value: "*" # Or your specific Vercel URL: https://your-project.vercel.app
+

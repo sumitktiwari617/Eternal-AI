@@ -1,0 +1,34 @@
+# Environment & Credentials (CRITICAL SECURITY)
+.env
+.env.local
+.env.production
+*.key
+*.pem
+credentials.json
+
+# Python Virtual Environments & Caches
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Local Logs & Historical Run Outputs
+*.log
+daily_predictions.jsonl
+eternal_paper_log.jsonl
+model_learning_history.json
+eternal_backtest_results.csv
+eternal_rsi_backtest_results.csv
+
+# Backups & Editor configs
+*.bak
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
