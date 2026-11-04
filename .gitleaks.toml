@@ -1,0 +1,21 @@
+# Gitleaks Configuration for ETERNAL Trading System
+# Allows documented test placeholders and documentation examples
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known dummy credentials and test mocks"
+regexes = [
+    '''admin_aa3797c179a6236618316e26''',
+    '''ai_2abc92e5c7993432bb3b002a''',
+    '''your_consumer_key_here''',
+    '''super_secure_tunnel_token_12345''',
+    '''broker_super_secret_key_456''',
+]
+paths = [
+    '''tests/.*''',
+    '''\.env\.example''',
+    '''README\.md''',
+    '''DEPLOYMENT_AND_MOBILITY_GUIDE\.md''',
+]

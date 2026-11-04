@@ -14,7 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from config import settings, update_settings
+from config import Settings, settings, update_settings
 from backend.schemas import (
     ConfigUpdateRequest,
     BacktestRequest,

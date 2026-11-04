@@ -22,6 +22,7 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -37,5 +38,4 @@ jobs:
 
       - name: Execute Security & Regression Test Suite
         run: |
-          pytest tests/ -v
-
+          python -m pytest tests/ -v
