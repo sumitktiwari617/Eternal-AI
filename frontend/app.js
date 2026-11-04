@@ -664,11 +664,6 @@ function bindControls() {
   document.getElementById("btn-pause")?.addEventListener("click", () => postAction("/api/controls/pause"));
   document.getElementById("btn-analyze")?.addEventListener("click", () => postAction("/api/analyze", "Analysis complete"));
   document.getElementById("btn-reset")?.addEventListener("click", () => postAction("/api/controls/reset"));
-  document.getElementById("btn-stop")?.addEventListener("click", () => {
-    if (confirm("EMERGENCY: Halt all trading operations and lock the agent?")) {
-      postAction("/api/controls/emergency-stop", "EMERGENCY STOP ACTIVATED!");
-    }
-  });
 
   document.getElementById("select-mode")?.addEventListener("change", (e) => {
     const newMode = e.target.value;
@@ -1182,64 +1177,7 @@ function bindSettingsForm() {
 
 // --- Hybrid Cloud & Tunnel Connection Management ---
 function initLocalAIModelConnection() {
-  // 1. Populate initial values
-  const backendInput = document.getElementById("cfg-render-backend-url");
-  if (backendInput) {
-    backendInput.value = RENDER_BACKEND_URL;
-  }
-
-  const aiInput = document.getElementById("cfg-local-ai-url");
-  if (aiInput) {
-    aiInput.value = LOCAL_AI_BASE;
-  }
-
-  const tokenInput = document.getElementById("cfg-ai-secret-token");
-  if (tokenInput) {
-    tokenInput.value = AI_SECRET_TOKEN;
-  }
-
-  const adminKeyInput = document.getElementById("cfg-admin-api-key");
-  if (adminKeyInput) {
-    adminKeyInput.value = sessionStorage.getItem("eternal_admin_key") || DEFAULT_ADMIN_KEY;
-  }
-
-  document.getElementById("btn-save-admin-key")?.addEventListener("click", () => {
-    const keyVal = (document.getElementById("cfg-admin-api-key")?.value || "").trim();
-    sessionStorage.setItem("eternal_admin_key", keyVal);
-    showToast("Admin API Key saved for this browser session!");
-  });
-
-  // 2. Render Backend Buttons
-  document.getElementById("btn-save-backend-url")?.addEventListener("click", () => {
-    const val = (document.getElementById("cfg-render-backend-url").value || "").trim().replace(/\/+$/, "");
-    RENDER_BACKEND_URL = val;
-    localStorage.setItem("eternal_backend_url", val);
-    showToast(`Saved Render Backend URL: ${val || "Current Origin"}`);
-    checkBackendHealth(true);
-    fetchStatus();
-  });
-
-  document.getElementById("btn-test-backend-conn")?.addEventListener("click", () => {
-    checkBackendHealth(true);
-  });
-
-  // 3. Local/Tunnel AI Model Buttons
-  document.getElementById("btn-save-ai-url")?.addEventListener("click", () => {
-    const val = (document.getElementById("cfg-local-ai-url").value || "http://127.0.0.1:8001").trim().replace(/\/+$/, "");
-    const token = (document.getElementById("cfg-ai-secret-token")?.value || "").trim();
-    LOCAL_AI_BASE = val;
-    AI_SECRET_TOKEN = token;
-    localStorage.setItem("eternal_local_ai_url", val);
-    localStorage.setItem("eternal_ai_token", token);
-    showToast(`Saved AI Tunnel URL: ${val}`);
-    checkLocalAIHealth(true);
-  });
-
-  document.getElementById("btn-test-ai-conn")?.addEventListener("click", () => {
-    checkLocalAIHealth(true);
-  });
-
-  // 4. Initial health checks
+  // Initial health checks
   checkBackendHealth(false);
   checkLocalAIHealth(false);
 }
@@ -1258,47 +1196,43 @@ async function checkBackendHealth(interactive = false) {
     clearTimeout(timeoutId);
 
     if (res.ok) {
-      const data = await res.json();
       if (badge) {
-        badge.textContent = `Backend: ${data.agent_state || "Online"}`;
+        badge.textContent = "Backend: Online";
         badge.className = "badge font-mono text-emerald";
         badge.style.borderColor = "#10b981";
       }
       if (teleStatus) {
-        teleStatus.textContent = `Connected (${currentBase})`;
+        teleStatus.textContent = "Online";
         teleStatus.className = "text-emerald";
       }
       if (interactive) {
-        showToast(`Connected to Backend at ${currentBase}!`);
+        showToast("Connected to Render Backend!");
       }
       return;
     }
   } catch (err) {}
 
   if (badge) {
-    badge.textContent = "Backend: Unreachable";
+    badge.textContent = "Backend: Offline";
     badge.className = "badge font-mono text-rose";
     badge.style.borderColor = "#f43f5e";
   }
   if (teleStatus) {
-    teleStatus.textContent = `Offline (${currentBase})`;
+    teleStatus.textContent = "Offline";
     teleStatus.className = "text-rose";
   }
   if (interactive) {
-    showToast(`Cannot reach Backend at ${currentBase}. Check URL!`, true);
+    showToast("Backend service is currently offline.", true);
   }
 }
 
 async function checkLocalAIHealth(interactive = false) {
-  const teleEndpoint = document.getElementById("tele-ai-endpoint");
   const headers = {
     "Accept": "application/json",
     "ngrok-skip-browser-warning": "1"
   };
   const token = localStorage.getItem("eternal_ai_token") || AI_SECRET_TOKEN || DEFAULT_AI_TOKEN;
   if (token) headers["X-AI-Secret-Token"] = token;
-
-  if (teleEndpoint) teleEndpoint.textContent = LOCAL_AI_BASE;
 
   // 1. Try local laptop tunnel directly first (works if browsing on the laptop)
   try {
@@ -1344,7 +1278,7 @@ async function checkLocalAIHealth(interactive = false) {
   }
 
   // 3. Laptop Tunnel is OFF / Unreachable
-  setTunnelStatusBadges(false, "Run start.bat on laptop");
+  setTunnelStatusBadges(false, "Tunnel inactive");
   if (interactive) {
     showToast("Laptop AI Tunnel is Offline. Run start.bat on your PC to connect!", true);
   }

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ETERNAL AI Trading Agent — Live Terminal</title>
-  <link rel="stylesheet" href="style.css?v=3.1">
+  <link rel="stylesheet" href="style.css?v=3.2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -66,7 +66,6 @@
           <button id="btn-pause" class="btn btn-warning">⏸ Pause</button>
           <button id="btn-analyze" class="btn btn-primary">🔍 Instant Analysis</button>
           <button id="btn-reset" class="btn btn-secondary">🔄 Reset / Unlock</button>
-          <button id="btn-stop" class="btn btn-danger">🛑 EMERGENCY STOP</button>
         </div>
         <div class="control-extra">
           <label class="switch-container">
@@ -525,51 +524,20 @@
       <!-- Cloud Deployment & Hybrid Tunnel Connection Card -->
       <div class="card mt-4">
         <div class="card-header">
-          <h3>🌐 HYBRID CLOUD DEPLOYMENT (VERCEL + RENDER + LOCAL AI TUNNEL)</h3>
+          <h3>🌐 CLOUD DEPLOYMENT & AI TUNNEL STATUS</h3>
           <div class="flex-row gap-2">
-            <span class="badge font-mono" id="render-backend-badge">Backend: Checking...</span>
+            <span class="badge font-mono" id="render-backend-badge">Backend: Online</span>
             <span class="badge font-mono" id="local-ai-status-badge">AI Tunnel: Checking...</span>
           </div>
         </div>
-        <div class="grid-2col mt-3">
-          <!-- Render Backend Config -->
-          <div>
-            <h4 class="text-sm font-bold text-cyan mb-1">1. Render Backend REST API Endpoint:</h4>
-            <p class="text-muted text-xs">If this UI is hosted on Vercel, connect it to your Render backend instance:</p>
-            <div class="flex-row gap-2 mt-2">
-              <input type="text" id="cfg-render-backend-url" class="input-text font-mono" placeholder="https://eternal-ai-3oat.onrender.com" value="https://eternal-ai-3oat.onrender.com">
-              <button id="btn-save-backend-url" class="btn btn-primary" type="button">Save Backend</button>
-              <button id="btn-test-backend-conn" class="btn btn-secondary" type="button">Test Backend</button>
-            </div>
-            <div class="mt-2">
-              <label class="label text-xs">Admin API Key (X-Admin-Key):</label>
-              <div class="flex-row gap-2">
-                <input type="password" id="cfg-admin-api-key" class="input-text font-mono" placeholder="Admin Key for mutating actions (stored in session)">
-                <button id="btn-save-admin-key" class="btn btn-secondary" type="button">Set Key</button>
-              </div>
-            </div>
-            <p class="text-muted text-xs mt-1">Leave empty to use current origin (for local execution).</p>
-          </div>
 
-          <!-- AI Model Local / Tunnel Config -->
-          <div>
-            <h4 class="text-sm font-bold text-amber mb-1">2. Localhost AI Model / Tunnel URL:</h4>
-            <p class="text-muted text-xs">Point to your local machine (e.g. <code>http://127.0.0.1:8001</code> or ngrok tunnel):</p>
-            <div class="flex-row gap-2 mt-2">
-              <input type="text" id="cfg-local-ai-url" class="input-text font-mono" placeholder="http://127.0.0.1:8001" value="http://127.0.0.1:8001">
-              <input type="password" id="cfg-ai-secret-token" class="input-text font-mono" placeholder="Secret Token (Optional)" style="max-width: 150px;">
-              <button id="btn-save-ai-url" class="btn btn-primary" type="button">Save AI</button>
-              <button id="btn-test-ai-conn" class="btn btn-secondary" type="button">Test AI</button>
-            </div>
-            <p class="text-muted text-xs mt-1">Start local model with <code>start_ai_tunnel.bat</code> or <code>start_ai_model.bat</code>.</p>
+        <div class="mt-3 font-mono text-xs text-muted" id="local-ai-telemetry-box" style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
+          <div class="grid-2col">
+            <div style="font-size: 0.95rem;">Render Backend: <span id="tele-backend-status" class="text-emerald font-bold">Online</span></div>
+            <div style="font-size: 0.95rem;">AI Service Status: <span id="tele-ai-status" class="text-amber font-bold">Offline (Tunnel inactive)</span></div>
           </div>
-        </div>
-
-        <div class="mt-3 font-mono text-xs text-muted" id="local-ai-telemetry-box" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
-          <div class="grid-3col">
-            <div>Render Backend: <span id="tele-backend-status" class="text-white">--</span></div>
-            <div>AI Model Endpoint: <span id="tele-ai-endpoint" class="text-cyan">http://127.0.0.1:8001</span></div>
-            <div>AI Service Status: <span id="tele-ai-status" class="text-amber">Offline (Tunnel inactive)</span></div>
+          <div class="mt-2 text-muted text-xs" style="color: #94a3b8;">
+            Zero-config cloud sync: Run <code>start.bat</code> on your laptop to automatically link your local AI model with this dashboard.
           </div>
         </div>
       </div>
@@ -619,6 +587,6 @@
   <div id="toast" class="toast"></div>
 
   <!-- App JavaScript -->
-  <script src="app.js?v=3.1"></script>
+  <script src="app.js?v=3.2"></script>
 </body>
 </html>
