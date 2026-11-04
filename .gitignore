@@ -1,5 +1,8 @@
 # Environment & Credentials (CRITICAL SECURITY)
 .env
+.env.*
+*.env
+render.env
 .env.local
 .env.production
 *.key
