@@ -90,28 +90,8 @@ app = FastAPI(
 
 # --- Private Network Access & CORS Middleware ---
 
-class PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):
-    """
-    Handles Chrome/Edge Private Network Access (PNA) preflight and response headers.
-    Allows remote hosted web apps (e.g. on https://my-trading-app.com) to access
-    the local AI model on http://127.0.0.1:8001 seamlessly.
-    """
-    async def dispatch(self, request: Request, call_next):
-        if request.method == "OPTIONS" and "access-control-request-private-network" in request.headers:
-            response = Response(status_code=204)
-            response.headers["Access-Control-Allow-Origin"] = request.headers.get("origin", "*")
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
-            response.headers["Access-Control-Allow-Headers"] = "*"
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Private-Network"] = "true"
-            return response
-
-        response = await call_next(request)
-        response.headers["Access-Control-Allow-Private-Network"] = "true"
-        return response
-
-
 import hmac
+import re
 
 cors_origins_list = (
     [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
@@ -119,15 +99,54 @@ cors_origins_list = (
     else ["http://localhost:8000", "http://127.0.0.1:8000"]
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins_list,
-    allow_origin_regex=r"https://.*\.vercel\.app",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
+def is_allowed_origin(origin: Optional[str]) -> bool:
+    """Validates origin against configured list, local loopback, and vercel regex."""
+    if not origin:
+        return False
+    if origin in cors_origins_list:
+        return True
+    if origin.startswith("http://localhost:") or origin.startswith("http://127.0.0.1:"):
+        return True
+    if not settings.cors_origins_strict:
+        if re.match(r"^https://[a-zA-Z0-9-]+\.vercel\.app$", origin):
+            return True
+    return False
+
+
+class PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):
+    """
+    Handles Chrome/Edge Private Network Access (PNA) preflight and response headers.
+    Restricts origin reflection to validated trusted origins only.
+    """
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin")
+        if request.method == "OPTIONS" and "access-control-request-private-network" in request.headers:
+            response = Response(status_code=204)
+            if is_allowed_origin(origin):
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Access-Control-Allow-Credentials"] = "true"
+                response.headers["Access-Control-Allow-Private-Network"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+            response.headers["Access-Control-Allow-Headers"] = "*"
+            return response
+
+        response = await call_next(request)
+        if is_allowed_origin(origin):
+            response.headers["Access-Control-Allow-Private-Network"] = "true"
+        return response
+
+
+cors_kwargs = {
+    "allow_origins": cors_origins_list,
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+if not settings.cors_origins_strict:
+    cors_kwargs["allow_origin_regex"] = r"https://.*\.vercel\.app"
+
+app.add_middleware(CORSMiddleware, **cors_kwargs)
 app.add_middleware(PrivateNetworkAccessMiddleware)
 
 

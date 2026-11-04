@@ -1,9 +1,10 @@
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
+from pathlib import Path
 import zoneinfo
 import pandas as pd
 
-from config import Settings, settings as default_settings, update_settings
+from config import Settings, settings as default_settings, update_settings, BASE_DIR
 from core.indicators import calculate_indicators
 from core.strategy import evaluate_signal
 from core.risk_manager import calculate_trade_brackets, check_safety_gate
@@ -39,8 +40,20 @@ class ExecutionEngine:
         self.last_analysis_time = None
         self.last_quote = None
 
+        # Check persistent emergency stop flag on startup
+        if self._get_lock_path().exists() or self.config.emergency_stop:
+            self.state = "EMERGENCY_STOPPED"
+            update_settings({"emergency_stop": True})
+
+    def _get_lock_path(self) -> Path:
+        lock_path = Path(self.config.emergency_stop_file)
+        if not lock_path.is_absolute():
+            return BASE_DIR / lock_path
+        return lock_path
+
     def start(self) -> Dict[str, Any]:
-        if self.config.emergency_stop:
+        if self.config.emergency_stop or self._get_lock_path().exists():
+            self.state = "EMERGENCY_STOPPED"
             return {
                 "success": False,
                 "error": "Cannot start agent while EMERGENCY STOP is active. Please reset first.",
@@ -56,6 +69,10 @@ class ExecutionEngine:
     def emergency_stop(self) -> Dict[str, Any]:
         self.state = "EMERGENCY_STOPPED"
         update_settings({"emergency_stop": True})
+        try:
+            self._get_lock_path().write_text("EMERGENCY_STOPPED", encoding="utf-8")
+        except Exception:
+            pass
         return {
             "success": True,
             "message": "EMERGENCY STOP ACTIVATED! All operations and orders halted.",
@@ -65,6 +82,12 @@ class ExecutionEngine:
     def reset(self) -> Dict[str, Any]:
         update_settings({"emergency_stop": False})
         self.state = "IDLE"
+        try:
+            lock = self._get_lock_path()
+            if lock.exists():
+                lock.unlink()
+        except Exception:
+            pass
         return {
             "success": True,
             "message": "Emergency stop cleared. Agent returned to IDLE state.",
@@ -99,6 +122,33 @@ class ExecutionEngine:
 
         quote = fetch_latest_quote(symbol=self.config.symbol, config=self.config, kotak_adapter=self.kotak)
         self.last_quote = quote
+
+        # 0. Emergency Stop Guard
+        if self.config.emergency_stop or self.state == "EMERGENCY_STOPPED" or self._get_lock_path().exists():
+            self.state = "EMERGENCY_STOPPED"
+            self.last_decision = {
+                "timestamp": now.isoformat(),
+                "symbol": self.config.symbol,
+                "mode": self.config.agent_mode,
+                "signal": "HOLD",
+                "action": "EMERGENCY_STOPPED",
+                "directive": "EMERGENCY STOP IS ACTIVE. Operations halted.",
+                "human_guidance": "Emergency stop is active. Reset to resume.",
+                "reason": "EMERGENCY_STOPPED",
+                "safety": {"allowed": False, "reason": "Emergency stop is active", "status": "EMERGENCY_STOPPED"},
+                "quote": quote,
+                "indicators": None,
+                "brackets": None,
+                "data_source": "NONE",
+                "real_orders_enabled": False,
+            }
+            return {
+                "success": False,
+                "advisory_refused": True,
+                "error": "Emergency stop is active. No advisories issued.",
+                "state": self.state,
+                "decision": self.last_decision
+            }
 
         # 1. Fetch candles
         try:

@@ -1,10 +1,12 @@
 import asyncio
 import hmac
 import ipaddress
+import threading
+import time
 from urllib.parse import urlparse
 from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from fastapi import FastAPI, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +39,22 @@ from ai.auto_learner import auto_learner
 _poller_task = None
 _learner_task = None
 
+DEFAULT_PLACEHOLDER_SECRETS = {
+    "admin_aa3797c179a6236618316e26",
+    "ai_2abc92e5c7993432bb3b002a",
+}
+
+
+def validate_strict_secrets(cfg: Optional[Settings] = None) -> bool:
+    """Fails fast on boot if STRICT_SECRETS is enabled and placeholder secrets remain."""
+    c = cfg or settings
+    if c.strict_secrets:
+        if not c.admin_api_key or c.admin_api_key.strip() in DEFAULT_PLACEHOLDER_SECRETS:
+            raise RuntimeError("STRICT_SECRETS=true: ADMIN_API_KEY must be set to a custom non-default value.")
+        if not c.ai_secret_token or c.ai_secret_token.strip() in DEFAULT_PLACEHOLDER_SECRETS:
+            raise RuntimeError("STRICT_SECRETS=true: AI_SECRET_TOKEN must be set to a custom non-default value.")
+    return True
+
 
 async def background_monitoring_loop():
     """Background polling worker that evaluates signals when agent is RUNNING."""
@@ -52,6 +70,9 @@ async def background_monitoring_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _poller_task, _learner_task
+
+    # 0. Strict secrets enforcement if enabled
+    validate_strict_secrets(settings)
 
     # 1. Autonomous training check on boot
     try:
@@ -107,17 +128,66 @@ cors_origins_list = (
     else ["http://localhost:8000", "http://127.0.0.1:8000", "http://localhost:3000"]
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins_list,
-    allow_origin_regex=r"https://.*\.vercel\.app",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+cors_kwargs = {
+    "allow_origins": cors_origins_list,
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+if not settings.cors_origins_strict:
+    cors_kwargs["allow_origin_regex"] = r"https://.*\.vercel\.app"
+
+app.add_middleware(CORSMiddleware, **cors_kwargs)
+
+
+# --- In-Memory Rate Limiting ---
+
+class InMemoryRateLimiter:
+    """Sliding-window rate limiter per client IP to safeguard resource-heavy endpoints."""
+    def __init__(self, max_requests: int, window_seconds: float):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.history: Dict[str, List[float]] = {}
+        self.lock = threading.Lock()
+
+    def check(self, request: Request):
+        client_ip = request.client.host if request.client else "unknown"
+        if settings.dev_mode and client_ip in ("testclient", "127.0.0.1", "localhost", "::1"):
+            return True
+        now = time.time()
+        with self.lock:
+            timestamps = self.history.get(client_ip, [])
+            timestamps = [t for t in timestamps if now - t < self.window_seconds]
+            if len(timestamps) >= self.max_requests:
+                self.history[client_ip] = timestamps
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Too many requests. Please wait before retrying."
+                )
+            timestamps.append(now)
+            self.history[client_ip] = timestamps
+            return True
+
+
+analyze_limiter = InMemoryRateLimiter(max_requests=10, window_seconds=60.0)
+market_data_limiter = InMemoryRateLimiter(max_requests=60, window_seconds=60.0)
+logs_limiter = InMemoryRateLimiter(max_requests=60, window_seconds=60.0)
+ai_predict_limiter = InMemoryRateLimiter(max_requests=60, window_seconds=60.0)
 
 
 # --- Security & Authentication Helpers ---
+
+def verify_broker_key(request: Request):
+    """Enforces X-Broker-Key header if ADMIN_API_KEY_BROKER is configured."""
+    if not settings.admin_api_key_broker:
+        return True
+    provided = request.headers.get("X-Broker-Key") or request.headers.get("x-broker-key")
+    if not provided or not hmac.compare_digest(provided.strip(), settings.admin_api_key_broker.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized: Missing or invalid X-Broker-Key header for broker operations."
+        )
+    return True
 
 def verify_admin_key(request: Request):
     """
@@ -224,6 +294,11 @@ def get_configuration():
 def update_configuration(req: ConfigUpdateRequest, request: Request):
     """Updates non-safety configuration parameters dynamically."""
     verify_admin_key(request)
+    if req.symbol and req.symbol != settings.symbol:
+        raise HTTPException(
+            status_code=400,
+            detail="Symbol change via API is blocked to prevent mismatched instrument token (5097). Please configure SYMBOL and KOTAK_TOKEN in .env."
+        )
     payload = {k: v for k, v in req.model_dump().items() if v is not None}
     new_cfg = update_settings(payload)
     return {
@@ -235,10 +310,12 @@ def update_configuration(req: ConfigUpdateRequest, request: Request):
 
 @app.get("/api/market-data")
 def get_market_data(
+    request: Request,
     range_period: str = "5d",
     interval: Optional[str] = None
 ):
     """Returns historical candles along with precalculated indicators for chart rendering."""
+    market_data_limiter.check(request)
     inv = interval or settings.timeframe
     try:
         df = fetch_historical_candles(
@@ -291,8 +368,9 @@ def get_market_data(
 
 
 @app.post("/api/analyze")
-def trigger_analysis():
+def trigger_analysis(request: Request):
     """Triggers an immediate market data fetch, indicator calculation, and signal decision."""
+    analyze_limiter.check(request)
     res = engine.run_single_analysis()
     return res
 
@@ -403,11 +481,15 @@ def trigger_rsi_backtest(req: BacktestRequest, request: Request):
 
 
 @app.get("/api/logs")
-def get_logs(limit: int = 50):
+def get_logs(request: Request, limit: int = 50):
     """Returns recent paper trading and analysis logs."""
+    logs_limiter.check(request)
+    capped_limit = min(max(1, limit), 500)
+    logs = get_recent_logs(limit=capped_limit, config=settings)
     return {
-        "count": limit,
-        "logs": get_recent_logs(limit=limit, config=settings)
+        "count": len(logs),
+        "limit": capped_limit,
+        "logs": logs
     }
 
 
@@ -423,6 +505,7 @@ def clear_paper_logs(request: Request):
 def login_kotak(req: KotakLoginRequest, request: Request):
     """Logs into Kotak Neo API using TOTP."""
     verify_admin_key(request)
+    verify_broker_key(request)
     return engine.kotak.login_with_totp(totp_code=req.totp, mpin=req.mpin)
 
 
@@ -432,6 +515,7 @@ def login_kotak(req: KotakLoginRequest, request: Request):
 def get_positions(request: Request):
     """Fetches open positions from Kotak Neo API (Read-Only)."""
     verify_admin_key(request)
+    verify_broker_key(request)
     return engine.kotak.get_positions()
 
 
@@ -439,6 +523,7 @@ def get_positions(request: Request):
 def get_order_history(request: Request):
     """Fetches daily order report from Kotak Neo API (Read-Only)."""
     verify_admin_key(request)
+    verify_broker_key(request)
     return engine.kotak.get_order_report()
 
 
@@ -506,12 +591,13 @@ def get_ai_tunnel_status():
 
 
 @app.get("/api/ai/predict")
-def get_ai_prediction():
+def get_ai_prediction(request: Request):
     """
     Runs real-time machine learning inference:
     First attempts to query the dedicated Localhost AI Model Microservice (if running),
     otherwise falls back to in-process model.
     """
+    ai_predict_limiter.check(request)
     # 1. Check if external Local AI Model server is reachable
     if settings.ai_model_service_url:
         try:

@@ -23,6 +23,8 @@ dist/
 # Local Logs & Historical Run Outputs
 *.log
 logs/
+archive/
+*.lock
 daily_predictions.jsonl
 eternal_paper_log.jsonl
 advisories.jsonl

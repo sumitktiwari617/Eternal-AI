@@ -40,6 +40,7 @@ class Settings(BaseModel):
     # Real autonomous orders are PERMANENTLY DISABLED (System is strictly an AI Trading Guider)
     real_orders_enabled: bool = False
     emergency_stop: bool = Field(default_factory=lambda: os.getenv("EMERGENCY_STOP", "False").lower() in ("true", "1", "yes"))
+    emergency_stop_file: str = Field(default_factory=lambda: os.getenv("EMERGENCY_STOP_FILE", "emergency_stop.lock"))
     agent_mode: str = Field(default_factory=lambda: os.getenv("AGENT_MODE", "GUIDER"))  # "GUIDER" (Advisory Only) or "PAPER"
     max_data_age_seconds: int = Field(default_factory=lambda: int(os.getenv("MAX_DATA_AGE_SECONDS", "300")))
     enforce_market_hours: bool = Field(default_factory=lambda: os.getenv("ENFORCE_MARKET_HOURS", "True").lower() in ("true", "1", "yes"))
@@ -53,6 +54,8 @@ class Settings(BaseModel):
 
     # --- Security & Access Controls ---
     admin_api_key: Optional[str] = Field(default_factory=lambda: os.getenv("ADMIN_API_KEY", None))
+    admin_api_key_broker: Optional[str] = Field(default_factory=lambda: os.getenv("ADMIN_API_KEY_BROKER", None))
+    strict_secrets: bool = Field(default_factory=lambda: os.getenv("STRICT_SECRETS", "False").lower() in ("true", "1", "yes"))
     dev_mode: bool = Field(default_factory=lambda: os.getenv("DEV_MODE", "True").lower() in ("true", "1", "yes"))
 
     # --- Kotak Neo Broker Credentials (Optional) ---
@@ -69,6 +72,7 @@ class Settings(BaseModel):
     server_host: str = Field(default_factory=lambda: os.getenv("SERVER_HOST", "0.0.0.0" if os.getenv("RENDER") else "127.0.0.1"))
     server_port: int = Field(default_factory=lambda: int(os.getenv("PORT", os.getenv("SERVER_PORT", "8000"))))
     cors_origins: str = Field(default_factory=lambda: os.getenv("CORS_ORIGINS", "*"))
+    cors_origins_strict: bool = Field(default_factory=lambda: os.getenv("CORS_ORIGINS_STRICT", "False").lower() in ("true", "1", "yes"))
     render_backend_url: Optional[str] = Field(default_factory=lambda: os.getenv("RENDER_BACKEND_URL", "https://eternal-ai-3oat.onrender.com"))
     
     # --- Localhost AI Model Microservice & Tunnel Settings ---
@@ -88,7 +92,7 @@ class Settings(BaseModel):
         secret_keys = {
             "kotak_consumer_key", "kotak_consumer_secret", "kotak_mobile_number",
             "kotak_client_code", "kotak_mpin", "ai_secret_token", "ngrok_authtoken",
-            "admin_api_key"
+            "admin_api_key", "admin_api_key_broker"
         }
         full = self.model_dump()
         return {k: v for k, v in full.items() if k not in secret_keys}

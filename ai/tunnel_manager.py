@@ -14,6 +14,7 @@ import logging
 import re
 import subprocess
 import threading
+import hashlib
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -108,24 +109,54 @@ DEFAULT_AI_TOKEN = "ai_2abc92e5c7993432bb3b002a"
 _cf_process = None
 
 
+PINNED_CLOUDFLARED_VERSION = "2024.12.2"
+PINNED_CLOUDFLARED_URL = f"https://github.com/cloudflare/cloudflared/releases/download/{PINNED_CLOUDFLARED_VERSION}/cloudflared-windows-amd64.exe"
+# Verified SHA256 checksum for the pinned cloudflared binary
+PINNED_CLOUDFLARED_SHA256 = "2493dbc168923bb3e59e5e7716f71deced92992eea9acd6e9d74f84ac7751343"
+
+
+def compute_file_sha256(filepath: Path) -> str:
+    """Calculates SHA256 checksum of a file."""
+    sha = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(65536):
+            sha.update(chunk)
+    return sha.hexdigest().lower()
+
+
 def get_or_download_cloudflared() -> Optional[Path]:
-    """Retrieves or auto-downloads standalone Cloudflare quick tunnel binary."""
+    """Retrieves or auto-downloads standalone Cloudflare quick tunnel binary with SHA256 verification."""
     user_dir = Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / "AppData" / "Local" / "cloudflared"
     user_dir.mkdir(parents=True, exist_ok=True)
     cf_exe = user_dir / "cloudflared.exe"
+
     if cf_exe.exists() and cf_exe.stat().st_size > 1000000:
-        return cf_exe
+        actual_hash = compute_file_sha256(cf_exe)
+        if actual_hash == PINNED_CLOUDFLARED_SHA256:
+            return cf_exe
+        logger.warning(f"cloudflared.exe hash mismatch ({actual_hash[:8]}... vs expected {PINNED_CLOUDFLARED_SHA256[:8]}...). Redownloading pinned release...")
 
     try:
         import urllib.request
-        url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
-        logger.info("Downloading standalone zero-config Cloudflare tunnel...")
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        logger.info(f"Downloading pinned Cloudflare tunnel v{PINNED_CLOUDFLARED_VERSION}...")
+        req = urllib.request.Request(PINNED_CLOUDFLARED_URL, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=40.0) as resp:
             data = resp.read()
-        with open(cf_exe, "wb") as f:
+
+        temp_exe = user_dir / "cloudflared.tmp"
+        with open(temp_exe, "wb") as f:
             f.write(data)
-        logger.info("Cloudflare tunnel binary ready.")
+
+        downloaded_hash = compute_file_sha256(temp_exe)
+        if downloaded_hash != PINNED_CLOUDFLARED_SHA256:
+            temp_exe.unlink(missing_ok=True)
+            logger.error(f"Security Warning: Downloaded cloudflared hash {downloaded_hash} does not match pinned checksum {PINNED_CLOUDFLARED_SHA256}. Aborting download.")
+            return None
+
+        if cf_exe.exists():
+            cf_exe.unlink()
+        temp_exe.rename(cf_exe)
+        logger.info("Cloudflare tunnel binary verified with SHA256 and ready.")
         return cf_exe
     except Exception as e:
         logger.warning(f"Failed to auto-download cloudflared: {e}")

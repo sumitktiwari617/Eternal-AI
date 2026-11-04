@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Dict, Any, List
 
 
@@ -6,19 +6,39 @@ class ConfigUpdateRequest(BaseModel):
     symbol: Optional[str] = None
     exchange: Optional[str] = None
     timeframe: Optional[str] = None
-    ema_fast: Optional[int] = None
-    ema_slow: Optional[int] = None
-    rsi_period: Optional[int] = None
+    ema_fast: Optional[int] = Field(default=None, gt=1, description="Fast EMA period (> 1)")
+    ema_slow: Optional[int] = Field(default=None, gt=1, description="Slow EMA period (> 1)")
+    rsi_period: Optional[int] = Field(default=None, gt=1, description="RSI period (> 1)")
     rsi_buy_min: Optional[float] = None
     rsi_buy_max: Optional[float] = None
     rsi_sell_min: Optional[float] = None
     rsi_sell_max: Optional[float] = None
-    atr_period: Optional[int] = None
-    stop_loss_atr_mult: Optional[float] = None
-    target_atr_mult: Optional[float] = None
-    initial_capital: Optional[float] = None
-    default_quantity: Optional[int] = None
-    max_risk_per_trade_rupees: Optional[float] = None
+    atr_period: Optional[int] = Field(default=None, gt=1, description="ATR period (> 1)")
+    stop_loss_atr_mult: Optional[float] = Field(default=None, gt=0.0, description="Stop-loss ATR multiplier (> 0)")
+    target_atr_mult: Optional[float] = Field(default=None, gt=0.0, description="Target ATR multiplier (> 0)")
+    initial_capital: Optional[float] = Field(default=None, gt=0.0)
+    default_quantity: Optional[int] = Field(default=None, ge=1, description="Default order quantity (>= 1)")
+    max_risk_per_trade_rupees: Optional[float] = Field(default=None, gt=0.0)
+
+    @model_validator(mode="after")
+    def validate_cross_field_constraints(self):
+        if self.ema_fast is not None and self.ema_slow is not None:
+            if self.ema_fast >= self.ema_slow:
+                raise ValueError(f"ema_fast ({self.ema_fast}) must be strictly less than ema_slow ({self.ema_slow})")
+
+        if self.rsi_buy_min is not None and self.rsi_buy_max is not None:
+            if self.rsi_buy_min >= self.rsi_buy_max:
+                raise ValueError(f"rsi_buy_min ({self.rsi_buy_min}) must be strictly less than rsi_buy_max ({self.rsi_buy_max})")
+
+        if self.rsi_sell_min is not None and self.rsi_sell_max is not None:
+            if self.rsi_sell_min >= self.rsi_sell_max:
+                raise ValueError(f"rsi_sell_min ({self.rsi_sell_min}) must be strictly less than rsi_sell_max ({self.rsi_sell_max})")
+
+        if self.target_atr_mult is not None and self.stop_loss_atr_mult is not None:
+            if self.target_atr_mult <= self.stop_loss_atr_mult:
+                raise ValueError(f"target_atr_mult ({self.target_atr_mult}) must be strictly greater than stop_loss_atr_mult ({self.stop_loss_atr_mult})")
+
+        return self
 
 
 class BacktestRequest(BaseModel):
@@ -32,7 +52,7 @@ class BacktestRequest(BaseModel):
 
 
 class ModeUpdateRequest(BaseModel):
-    mode: str = Field(..., description="COPILOT, PAPER or LIVE")
+    mode: str = Field(..., description="COPILOT or PAPER (LIVE autonomous order placement is permanently disabled)")
 
 
 class KotakLoginRequest(BaseModel):

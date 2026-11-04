@@ -14,6 +14,10 @@ function getAuthHeaders(customHeaders = {}) {
   if (adminKey && adminKey.trim()) {
     headers["X-Admin-Key"] = adminKey.trim();
   }
+  const brokerKey = sessionStorage.getItem("eternal_broker_key");
+  if (brokerKey && brokerKey.trim()) {
+    headers["X-Broker-Key"] = brokerKey.trim();
+  }
   const aiToken = localStorage.getItem("eternal_ai_token") || AI_SECRET_TOKEN || DEFAULT_AI_TOKEN;
   if (aiToken && aiToken.trim()) {
     headers["X-AI-Secret-Token"] = aiToken.trim();
@@ -663,6 +667,11 @@ function bindControls() {
   document.getElementById("btn-start")?.addEventListener("click", () => postAction("/api/controls/start"));
   document.getElementById("btn-pause")?.addEventListener("click", () => postAction("/api/controls/pause"));
   document.getElementById("btn-analyze")?.addEventListener("click", () => postAction("/api/analyze", "Analysis complete"));
+  document.getElementById("btn-stop")?.addEventListener("click", () => {
+    if (confirm("EMERGENCY: Halt all trading operations and lock the agent?")) {
+      postAction("/api/controls/emergency-stop", "EMERGENCY STOP ACTIVATED!");
+    }
+  });
   document.getElementById("btn-reset")?.addEventListener("click", () => postAction("/api/controls/reset"));
 
   document.getElementById("select-mode")?.addEventListener("change", (e) => {
@@ -703,6 +712,13 @@ async function postAction(endpoint, successMsg = null, payload = null) {
 
     const res = await fetch(`${getApiBase()}${endpoint}`, options);
     const data = await res.json();
+    if (res.status === 401 && (data.detail || "").includes("X-Broker-Key")) {
+      const brokerKey = prompt("Broker API Key required. Please enter X-Broker-Key:");
+      if (brokerKey) {
+        sessionStorage.setItem("eternal_broker_key", brokerKey.trim());
+        return postAction(endpoint, successMsg, payload);
+      }
+    }
     if (data.error || (res.status >= 400 && data.detail)) {
       showToast(data.error || data.detail, true);
     } else {
@@ -1303,7 +1319,14 @@ function bindOrderControls() {
       msg.className = "text-xs font-mono mt-2 text-cyan";
     }
     try {
-      const posRes = await fetch(`${getApiBase()}/api/orders/positions`, { headers: getAuthHeaders() });
+      let posRes = await fetch(`${getApiBase()}/api/orders/positions`, { headers: getAuthHeaders() });
+      if (posRes.status === 401) {
+        const brokerKey = prompt("Broker API Key required. Please enter X-Broker-Key:");
+        if (brokerKey) {
+          sessionStorage.setItem("eternal_broker_key", brokerKey.trim());
+          posRes = await fetch(`${getApiBase()}/api/orders/positions`, { headers: getAuthHeaders() });
+        }
+      }
       const ordRes = await fetch(`${getApiBase()}/api/orders/history`, { headers: getAuthHeaders() });
       const posData = await posRes.json();
       const ordData = await ordRes.json();

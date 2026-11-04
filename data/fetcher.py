@@ -16,6 +16,10 @@ class DataUnavailableError(Exception):
     pass
 
 
+ALLOWED_RANGE_PERIODS = {"1d", "5d", "1mo", "3mo", "6mo", "60d", "1y", "2y", "5y", "max"}
+ALLOWED_INTERVALS = {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo"}
+
+
 def fetch_historical_candles(
     symbol: Optional[str] = None,
     range_period: str = "5d",
@@ -26,6 +30,11 @@ def fetch_historical_candles(
     Fetches historical OHLCV candles via Yahoo Finance REST API.
     Raises DataUnavailableError on failure unless ALLOW_SYNTHETIC_DATA is explicitly enabled.
     """
+    if range_period not in ALLOWED_RANGE_PERIODS:
+        raise ValueError(f"Invalid range_period '{range_period}'. Allowed: {sorted(ALLOWED_RANGE_PERIODS)}")
+    if interval not in ALLOWED_INTERVALS:
+        raise ValueError(f"Invalid interval '{interval}'. Allowed: {sorted(ALLOWED_INTERVALS)}")
+
     cfg = config or default_settings
     sym = symbol or cfg.symbol
     tz = zoneinfo.ZoneInfo(cfg.timezone)

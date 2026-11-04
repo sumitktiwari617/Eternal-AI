@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
 from datetime import datetime
@@ -208,7 +209,7 @@ def get_recent_logs(
 
 
 def clear_logs(config: Optional[Settings] = None) -> bool:
-    """Clears the paper log file."""
+    """Safely archives the paper log file to preserve the audit trail."""
     cfg = config or default_settings
     log_path = Path(cfg.paper_log_file)
     if not log_path.is_absolute():
@@ -216,7 +217,11 @@ def clear_logs(config: Optional[Settings] = None) -> bool:
 
     try:
         if log_path.exists():
-            log_path.unlink()
+            archive_dir = (log_path.parent if log_path.is_absolute() else BASE_DIR) / "archive"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            archive_path = archive_dir / f"{log_path.stem}_{timestamp}{log_path.suffix}"
+            shutil.move(str(log_path), str(archive_path))
         return True
     except Exception:
         return False
