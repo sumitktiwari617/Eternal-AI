@@ -34,6 +34,7 @@ let cachedCandles = [];
 
 // --- Initialize App ---
 document.addEventListener("DOMContentLoaded", () => {
+  startLiveClock();
   initTabs();
   bindControls();
   bindBacktestForm();
@@ -59,6 +60,30 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }, 4000);
 });
+
+// --- Live IST Clock (Updates Every Second) ---
+function startLiveClock() {
+  function updateClock() {
+    const el = document.getElementById("header-time");
+    if (!el) return;
+    try {
+      const now = new Date();
+      const options = {
+        timeZone: "Asia/Kolkata",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      };
+      el.textContent = new Intl.DateTimeFormat("en-GB", options).format(now);
+      el.classList.remove("text-muted");
+    } catch (e) {
+      el.textContent = new Date().toTimeString().split(" ")[0];
+    }
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+}
 
 // --- Tab Navigation ---
 function initTabs() {
@@ -1256,9 +1281,6 @@ async function checkLocalAIHealth(interactive = false) {
   }
   if (interactive) {
     showToast(`AI Model is currently unreachable.`, true);
-  }
-}
-    showToast(`Cannot reach AI Tunnel at ${LOCAL_AI_BASE}. Run start_ai_tunnel.bat!`, true);
   }
 }
 
