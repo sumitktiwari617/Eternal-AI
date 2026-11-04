@@ -51,9 +51,14 @@ document.addEventListener("DOMContentLoaded", () => {
   fetchLogs();
 
   // Start continuous polling (every 4 seconds)
+  let pollCycle = 0;
   pollTimer = setInterval(() => {
+    pollCycle++;
     fetchStatus();
     fetchAIPrediction();
+    if (pollCycle % 3 === 0) {
+      checkLocalAIHealth(false);
+    }
     const chartTab = document.getElementById("tab-chart");
     if (chartTab && chartTab.classList.contains("active")) {
       fetchMarketData();
@@ -339,6 +344,49 @@ function renderStatus(data) {
   }
 }
 
+// --- Synchronized Status Badges Helper ---
+function setTunnelStatusBadges(isOnline, detailText = "") {
+  const sourceBadge = document.getElementById("ai-source-badge");
+  const settingsBadge = document.getElementById("local-ai-status-badge");
+  const teleStatus = document.getElementById("tele-ai-status");
+
+  if (isOnline) {
+    if (sourceBadge) {
+      sourceBadge.textContent = "● Laptop AI Tunnel Online";
+      sourceBadge.style.color = "#10b981";
+      sourceBadge.style.borderColor = "#10b981";
+      sourceBadge.style.background = "rgba(16, 185, 129, 0.1)";
+    }
+    if (settingsBadge) {
+      settingsBadge.textContent = "● Laptop AI Tunnel Online";
+      settingsBadge.className = "badge font-mono text-emerald";
+      settingsBadge.style.borderColor = "#10b981";
+      settingsBadge.style.background = "rgba(16, 185, 129, 0.1)";
+    }
+    if (teleStatus) {
+      teleStatus.textContent = detailText ? `Online (${detailText})` : "Online (Active Tunnel)";
+      teleStatus.className = "text-emerald";
+    }
+  } else {
+    if (sourceBadge) {
+      sourceBadge.textContent = "○ Laptop Tunnel Offline";
+      sourceBadge.style.color = "#f59e0b";
+      sourceBadge.style.borderColor = "#f59e0b";
+      sourceBadge.style.background = "rgba(245, 158, 11, 0.1)";
+    }
+    if (settingsBadge) {
+      settingsBadge.textContent = "○ Laptop AI Tunnel Offline";
+      settingsBadge.className = "badge font-mono text-amber";
+      settingsBadge.style.borderColor = "#f59e0b";
+      settingsBadge.style.background = "rgba(245, 158, 11, 0.1)";
+    }
+    if (teleStatus) {
+      teleStatus.textContent = detailText ? `Offline (${detailText})` : "Offline (Run start.bat on laptop)";
+      teleStatus.className = "text-amber";
+    }
+  }
+}
+
 // --- Fetch Autonomous AI Prediction with Confidence & Reason ---
 async function fetchAIPrediction() {
   let pred = null;
@@ -352,8 +400,9 @@ async function fetchAIPrediction() {
       "Accept": "application/json",
       "ngrok-skip-browser-warning": "1"
     };
-    if (AI_SECRET_TOKEN) {
-      headers["X-AI-Secret-Token"] = AI_SECRET_TOKEN;
+    const token = localStorage.getItem("eternal_ai_token") || AI_SECRET_TOKEN || DEFAULT_AI_TOKEN;
+    if (token) {
+      headers["X-AI-Secret-Token"] = token;
     }
 
     const localRes = await fetch(`${LOCAL_AI_BASE}/api/ai/predict`, {
@@ -373,10 +422,12 @@ async function fetchAIPrediction() {
   // 2. Fall back to backend API endpoint
   if (!pred) {
     try {
-      const res = await fetch(`${getApiBase()}/api/ai/predict`);
+      const res = await fetch(`${getApiBase()}/api/ai/predict`, {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         pred = await res.json();
-        source = pred.routed_via === "localhost_ai_service" ? "localhost" : "cloud_backend";
+        source = (pred.routed_via === "localhost_ai_service" || pred.source === "localhost_ai_model") ? "localhost" : "cloud_backend";
       }
     } catch (err) {
       console.warn("AI prediction fetch failed:", err);
@@ -412,20 +463,11 @@ function renderAIPrediction(pred, source = "localhost") {
   const regimeEl = document.getElementById("stat-regime-acc");
   if (regimeEl && pred.regime_accuracy != null) regimeEl.textContent = `${pred.regime_accuracy}%`;
 
-  const sourceBadge = document.getElementById("ai-source-badge");
-  if (sourceBadge) {
-    if (source === "localhost") {
-      sourceBadge.textContent = "● Laptop AI Tunnel Online";
-      sourceBadge.style.color = "#10b981";
-      sourceBadge.style.borderColor = "#10b981";
-      sourceBadge.style.background = "rgba(16, 185, 129, 0.1)";
-    } else {
-      sourceBadge.textContent = "○ Laptop Tunnel Offline";
-      sourceBadge.style.color = "#f59e0b";
-      sourceBadge.style.borderColor = "#f59e0b";
-      sourceBadge.style.background = "rgba(245, 158, 11, 0.1)";
-    }
-  }
+  // Synchronize all status badges across cards and settings
+  setTunnelStatusBadges(
+    source === "localhost",
+    source === "localhost" ? "Via Cloud Tunnel" : "Tunnel Inactive / Cloud Fallback"
+  );
 
   // 2. Signal Badge
   const badge = document.getElementById("signal-badge");
@@ -685,10 +727,55 @@ async function fetchMarketData() {
     const data = await res.json();
     cachedCandles = data.candles || [];
 
+    if (cachedCandles.length > 0) {
+      updateTelemetryFromCandles(cachedCandles[cachedCandles.length - 1]);
+    }
+
     renderCandlesTable(cachedCandles);
     requestAnimationFrame(() => drawCanvasChart(cachedCandles));
   } catch (err) {
     console.error("Market data fetch failed:", err);
+  }
+}
+
+function updateTelemetryFromCandles(latest) {
+  if (!latest) return;
+  const ltpEl = document.getElementById("quote-ltp");
+  if (ltpEl && typeof latest.close === "number") {
+    ltpEl.textContent = `₹${latest.close.toFixed(2)}`;
+  }
+  const openEl = document.getElementById("quote-open");
+  if (openEl && typeof latest.open === "number") openEl.textContent = `₹${latest.open.toFixed(2)}`;
+  const highEl = document.getElementById("quote-high");
+  if (highEl && typeof latest.high === "number") highEl.textContent = `₹${latest.high.toFixed(2)}`;
+  const lowEl = document.getElementById("quote-low");
+  if (lowEl && typeof latest.low === "number") lowEl.textContent = `₹${latest.low.toFixed(2)}`;
+  const volEl = document.getElementById("quote-vol");
+  if (volEl && typeof latest.volume === "number") volEl.textContent = `${Math.round(latest.volume / 1000)}K`;
+
+  const emaFastEl = document.getElementById("ind-ema-fast");
+  if (emaFastEl && (emaFastEl.textContent.includes("--") || emaFastEl.textContent.trim() === "")) {
+    if (typeof latest.ema_fast === "number") emaFastEl.textContent = `₹${latest.ema_fast.toFixed(2)}`;
+  }
+  const emaSlowEl = document.getElementById("ind-ema-slow");
+  if (emaSlowEl && (emaSlowEl.textContent.includes("--") || emaSlowEl.textContent.trim() === "")) {
+    if (typeof latest.ema_slow === "number") emaSlowEl.textContent = `₹${latest.ema_slow.toFixed(2)}`;
+  }
+  const vwapEl = document.getElementById("ind-vwap");
+  if (vwapEl && (vwapEl.textContent.includes("--") || vwapEl.textContent.trim() === "")) {
+    if (typeof latest.vwap === "number") vwapEl.textContent = `₹${latest.vwap.toFixed(2)}`;
+  }
+  const rsiEl = document.getElementById("ind-rsi");
+  if (rsiEl && (rsiEl.textContent.includes("--") || rsiEl.textContent.trim() === "")) {
+    if (typeof latest.rsi === "number") {
+      rsiEl.textContent = latest.rsi.toFixed(2);
+      const rsiBar = document.getElementById("ind-rsi-bar");
+      if (rsiBar) rsiBar.style.width = `${Math.min(100, Math.max(0, latest.rsi))}%`;
+    }
+  }
+  const atrBadge = document.getElementById("bracket-atr-info");
+  if (atrBadge && (atrBadge.textContent.includes("--") || atrBadge.textContent.includes("N/A"))) {
+    if (typeof latest.atr === "number") atrBadge.textContent = `ATR 14: ₹${latest.atr.toFixed(2)}`;
   }
 }
 
@@ -1203,9 +1290,7 @@ async function checkBackendHealth(interactive = false) {
 }
 
 async function checkLocalAIHealth(interactive = false) {
-  const badge = document.getElementById("local-ai-status-badge");
   const teleEndpoint = document.getElementById("tele-ai-endpoint");
-  const teleStatus = document.getElementById("tele-ai-status");
   const headers = {
     "Accept": "application/json",
     "ngrok-skip-browser-warning": "1"
@@ -1228,16 +1313,8 @@ async function checkLocalAIHealth(interactive = false) {
 
     if (res.ok) {
       const info = await res.json();
-      if (badge) {
-        badge.textContent = "● Laptop AI Tunnel Online";
-        badge.className = "badge font-mono text-emerald";
-        badge.style.borderColor = "#10b981";
-      }
       const accStr = (info.accuracy != null) ? `${info.accuracy}%` : "37.2%";
-      if (teleStatus) {
-        teleStatus.textContent = `Online (Laptop: ${accStr})`;
-        teleStatus.className = "text-emerald";
-      }
+      setTunnelStatusBadges(true, `Laptop Direct: ${accStr}`);
       if (interactive) {
         showToast(`Connected to Laptop AI Model! Accuracy: ${accStr}`);
       }
@@ -1249,19 +1326,13 @@ async function checkLocalAIHealth(interactive = false) {
 
   // 2. Check if Render backend reports an active live tunnel from your laptop
   try {
-    const tunnelRes = await fetch(`${getApiBase()}/api/ai/tunnel-status`);
+    const tunnelRes = await fetch(`${getApiBase()}/api/ai/tunnel-status`, {
+      headers: getAuthHeaders()
+    });
     if (tunnelRes.ok) {
       const tunnelData = await tunnelRes.json();
       if (tunnelData.tunnel_alive) {
-        if (badge) {
-          badge.textContent = "● Laptop AI Tunnel Online";
-          badge.className = "badge font-mono text-emerald";
-          badge.style.borderColor = "#10b981";
-        }
-        if (teleStatus) {
-          teleStatus.textContent = "Online (Via Cloud Tunnel)";
-          teleStatus.className = "text-emerald";
-        }
+        setTunnelStatusBadges(true, "Via Cloud Tunnel");
         if (interactive) {
           showToast("Connected to Laptop AI Tunnel via Cloud Bridge!");
         }
@@ -1273,15 +1344,7 @@ async function checkLocalAIHealth(interactive = false) {
   }
 
   // 3. Laptop Tunnel is OFF / Unreachable
-  if (badge) {
-    badge.textContent = "○ Laptop AI Tunnel Offline";
-    badge.className = "badge font-mono text-amber";
-    badge.style.borderColor = "#f59e0b";
-  }
-  if (teleStatus) {
-    teleStatus.textContent = "Offline (Run start.bat on laptop)";
-    teleStatus.className = "text-amber";
-  }
+  setTunnelStatusBadges(false, "Run start.bat on laptop");
   if (interactive) {
     showToast("Laptop AI Tunnel is Offline. Run start.bat on your PC to connect!", true);
   }

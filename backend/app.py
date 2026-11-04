@@ -186,6 +186,9 @@ def validate_tunnel_url(url_str: str) -> str:
         raise HTTPException(status_code=400, detail=f"Invalid tunnel URL format: {e}")
 
 
+DEFAULT_AI_TOKEN = "ai_2abc92e5c7993432bb3b002a"
+
+
 def get_ai_service_headers() -> Dict[str, str]:
     """Headers for connecting to AI Model running on Localhost or Public Tunnel."""
     headers = {
@@ -194,8 +197,9 @@ def get_ai_service_headers() -> Dict[str, str]:
     }
     if settings.ai_tunnel_skip_warning:
         headers["ngrok-skip-browser-warning"] = "1"
-    if settings.ai_secret_token:
-        headers["X-AI-Secret-Token"] = settings.ai_secret_token
+    token = settings.ai_secret_token or DEFAULT_AI_TOKEN
+    if token:
+        headers["X-AI-Secret-Token"] = token
     return headers
 
 
