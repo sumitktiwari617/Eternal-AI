@@ -102,6 +102,7 @@ def get_existing_ngrok_url() -> Optional[str]:
     return None
 
 
+DEFAULT_RENDER_BACKEND_URL = "https://eternal-ai-3oat.onrender.com"
 DEFAULT_ADMIN_KEY = "admin_aa3797c179a6236618316e26"
 DEFAULT_AI_TOKEN = "ai_2abc92e5c7993432bb3b002a"
 _cf_process = None
@@ -266,9 +267,10 @@ def run_tunnel_manager():
     tunnel_url = start_tunnel(port=settings.ai_service_port)
 
     # Determine backends to register with
+    target_render = settings.render_backend_url or DEFAULT_RENDER_BACKEND_URL
     backends = []
-    if settings.render_backend_url and settings.render_backend_url.strip():
-        backends.append(settings.render_backend_url.strip())
+    if target_render and target_render.strip():
+        backends.append(target_render.strip())
     # Also register with local backend if reachable
     backends.append("http://127.0.0.1:8000")
 
@@ -307,8 +309,9 @@ def run_tunnel_manager():
                     register_tunnel_with_backend(b, tunnel_url, secret_token=settings.ai_secret_token)
 
             # Send keepalive ping to cloud backend to prevent cold start / sleep
-            if settings.render_backend_url:
-                ping_backend(settings.render_backend_url)
+            target_render = settings.render_backend_url or DEFAULT_RENDER_BACKEND_URL
+            if target_render:
+                ping_backend(target_render)
 
             if heartbeat_count % 10 == 0:
                 logger.info(f"Heartbeat tick #{heartbeat_count} | AI Server Healthy on port {settings.ai_service_port}")

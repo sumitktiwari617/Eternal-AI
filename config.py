@@ -69,7 +69,7 @@ class Settings(BaseModel):
     server_host: str = Field(default_factory=lambda: os.getenv("SERVER_HOST", "0.0.0.0" if os.getenv("RENDER") else "127.0.0.1"))
     server_port: int = Field(default_factory=lambda: int(os.getenv("PORT", os.getenv("SERVER_PORT", "8000"))))
     cors_origins: str = Field(default_factory=lambda: os.getenv("CORS_ORIGINS", "*"))
-    render_backend_url: Optional[str] = Field(default_factory=lambda: os.getenv("RENDER_BACKEND_URL", None))
+    render_backend_url: Optional[str] = Field(default_factory=lambda: os.getenv("RENDER_BACKEND_URL", "https://eternal-ai-3oat.onrender.com"))
     
     # --- Localhost AI Model Microservice & Tunnel Settings ---
     ai_service_host: str = Field(default_factory=lambda: os.getenv("AI_SERVICE_HOST", "127.0.0.1"))
