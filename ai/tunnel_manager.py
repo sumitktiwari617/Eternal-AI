@@ -104,8 +104,9 @@ def start_ai_server_if_needed(host: str = "127.0.0.1", port: int = 8001) -> bool
         log_handle.flush()
         
         # Run detached background process
+        global _ai_server_process
         if os.name == "nt":
-            subprocess.Popen(
+            _ai_server_process = subprocess.Popen(
                 cmd,
                 cwd=str(BASE_DIR),
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
@@ -115,7 +116,7 @@ def start_ai_server_if_needed(host: str = "127.0.0.1", port: int = 8001) -> bool
                 close_fds=True
             )
         else:
-            subprocess.Popen(
+            _ai_server_process = subprocess.Popen(
                 cmd,
                 cwd=str(BASE_DIR),
                 stdout=log_handle,
@@ -169,6 +170,49 @@ DEFAULT_ADMIN_KEY = "admin_aa3797c179a6236618316e26"
 DEFAULT_AI_TOKEN = "ai_2abc92e5c7993432bb3b002a"
 _cf_process = None
 _ssh_process = None
+_ai_server_process = None
+
+
+def cleanup_all():
+    """Terminates all child processes (ssh tunnel, cloudflared, and AI microservice) cleanly."""
+    global _ssh_process, _cf_process, _ai_server_process
+    if _ssh_process:
+        try:
+            _ssh_process.terminate()
+            _ssh_process.kill()
+        except Exception:
+            pass
+        _ssh_process = None
+    if _cf_process:
+        try:
+            _cf_process.terminate()
+            _cf_process.kill()
+        except Exception:
+            pass
+        _cf_process = None
+    if _ai_server_process:
+        try:
+            _ai_server_process.terminate()
+            _ai_server_process.kill()
+        except Exception:
+            pass
+        _ai_server_process = None
+
+
+import atexit
+atexit.register(cleanup_all)
+
+# Register Windows console close handler so clicking 'X' or Ctrl+C terminates child processes immediately
+if os.name == "nt":
+    try:
+        import ctypes
+        def _console_ctrl_handler(dwCtrlType):
+            cleanup_all()
+            return False
+        _handler_func = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_uint)(_console_ctrl_handler)
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(_handler_func, True)
+    except Exception:
+        pass
 
 
 PINNED_CLOUDFLARED_VERSION = "2024.12.2"
@@ -499,16 +543,7 @@ def run_tunnel_manager():
 
         except KeyboardInterrupt:
             logger.info("Tunnel manager shutting down by user request.")
-            if _ssh_process:
-                try:
-                    _ssh_process.terminate()
-                except Exception:
-                    pass
-            if _cf_process:
-                try:
-                    _cf_process.terminate()
-                except Exception:
-                    pass
+            cleanup_all()
             break
         except Exception as e:
             logger.debug(f"Heartbeat error: {e}")
