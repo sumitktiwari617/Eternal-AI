@@ -63,6 +63,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (pollCycle % 3 === 0) {
       checkLocalAIHealth(false);
     }
+    if (pollCycle % 8 === 0) {
+      fetchAIAccuracyTrend();
+    }
     const chartTab = document.getElementById("tab-chart");
     if (chartTab && chartTab.classList.contains("active")) {
       fetchMarketData();
@@ -447,16 +450,14 @@ async function fetchAIPrediction() {
 function renderAIPrediction(pred, source = "localhost") {
   // 1. Accuracy Badge & Source Badge
   const accBadge = document.getElementById("ai-accuracy-badge");
-  if (accBadge) {
-    const accText = (pred.model_accuracy != null) ? `${pred.model_accuracy}%` : "37.2%";
-    accBadge.textContent = `Signal Win Rate: ${accText}`;
+  if (accBadge && pred.model_accuracy != null) {
+    accBadge.textContent = `Signal Win Rate: ${pred.model_accuracy}%`;
     accBadge.title = "Balanced directional out-of-sample accuracy across active market signals (Target 1:3 RRR)";
   }
 
   const confBadge = document.getElementById("ai-conviction-badge");
-  if (confBadge) {
-    const highConf = (pred.high_conf_accuracy != null) ? `${pred.high_conf_accuracy}%` : "68.4%";
-    confBadge.textContent = `High-Conf: ${highConf}`;
+  if (confBadge && pred.high_conf_accuracy != null) {
+    confBadge.textContent = `High-Conf: ${pred.high_conf_accuracy}%`;
     confBadge.title = "Precision on trades where model confidence is >= 50%";
   }
 
@@ -568,8 +569,32 @@ async function fetchAIAccuracyTrend() {
   }
 
   if (data) {
-    renderAccuracyTimeline(data.history || []);
-    drawAccuracyChart(data.history || []);
+    const hist = data.history || [];
+    renderAccuracyTimeline(hist);
+    drawAccuracyChart(hist);
+
+    // Sync top-level accuracy cards and badges with real measured data
+    const latest = (hist.length > 0) ? hist[hist.length - 1] : null;
+    const curAcc = (latest && latest.accuracy != null) ? latest.accuracy : data.current_accuracy;
+    const highConf = (latest && latest.high_conf_accuracy != null) ? latest.high_conf_accuracy : null;
+    const regime = (latest && latest.regime_accuracy != null) ? latest.regime_accuracy : null;
+
+    if (curAcc != null) {
+      const oosEl = document.getElementById("stat-oos-acc");
+      if (oosEl) oosEl.textContent = `${curAcc}%`;
+      const accBadge = document.getElementById("ai-accuracy-badge");
+      if (accBadge) accBadge.textContent = `Signal Win Rate: ${curAcc}%`;
+    }
+    if (highConf != null) {
+      const highConfEl = document.getElementById("stat-high-conf");
+      if (highConfEl) highConfEl.textContent = `${highConf}%`;
+      const confBadge = document.getElementById("ai-conviction-badge");
+      if (confBadge) confBadge.textContent = `High-Conf: ${highConf}%`;
+    }
+    if (regime != null) {
+      const regimeEl = document.getElementById("stat-regime-acc");
+      if (regimeEl) regimeEl.textContent = `${regime}%`;
+    }
   }
 }
 
@@ -1263,7 +1288,7 @@ async function checkLocalAIHealth(interactive = false) {
 
     if (res.ok) {
       const info = await res.json();
-      const accStr = (info.accuracy != null) ? `${info.accuracy}%` : "37.2%";
+      const accStr = (info.accuracy != null) ? `${info.accuracy}%` : "Online";
       setTunnelStatusBadges(true, `Laptop Direct: ${accStr}`);
       if (interactive) {
         showToast(`Connected to Laptop AI Model! Accuracy: ${accStr}`);

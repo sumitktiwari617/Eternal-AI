@@ -311,6 +311,25 @@ def cmd_ai(args=None):
     print(f"Next automatic retraining: Daily at 15:30 IST (Market close).\n")
 
 
+def cmd_ai_train(args=None):
+    print_banner()
+    print("🔄 Starting Autonomous Model Retraining Cycle...")
+    print(f"Fetching latest {settings.symbol} historical candles from Yahoo Finance...")
+    from ai.auto_learner import auto_learner
+    res = auto_learner.run_daily_retrain_cycle()
+    print("\n" + "=" * 65)
+    print("🏆 ETERNAL AI - RETRAINING COMPLETE")
+    print("=" * 65)
+    print(f"Candles Processed:     {res.get('samples')}")
+    print(f"Features Extracted:    {res.get('features_count')}")
+    print(f"Measured Win Rate:     {res.get('accuracy')}% (Balanced Out-of-Sample)")
+    print(f"High-Conf Conviction:  {res.get('high_conf_accuracy')}%")
+    print(f"Regime Classification: {res.get('regime_accuracy')}%")
+    print(f"Training Timestamp:    {res.get('train_time')}")
+    print("=" * 65)
+    print("Weights saved to eternal_ai_model.joblib and model_learning_history.json.\n")
+
+
 def cmd_monitor(args=None):
     interval = getattr(args, "interval", None) or settings.poll_interval_seconds
     print_banner()
@@ -445,6 +464,10 @@ def main():
     p_ai = subparsers.add_parser("ai", help="Run real-time Autonomous AI Inference with Confidence & Reason")
     p_ai.add_argument("--symbol", type=str, default=None, help="Target asset symbol (e.g. ETERNAL.NS)")
 
+    # AI Model Training
+    subparsers.add_parser("ai-train", help="Retrain AI Model on latest 60-day market data")
+    subparsers.add_parser("retrain", help="Alias for ai-train")
+
     # AI Model Dedicated Microservice
     p_aisrv = subparsers.add_parser("ai-server", help="Launch Localhost AI Model Microservice (Port 8001)")
     p_aisrv.add_argument("--host", type=str, default="127.0.0.1", help="Host address")
@@ -496,6 +519,8 @@ def main():
 
     if args.command == "ai":
         cmd_ai(args)
+    elif args.command in ("ai-train", "retrain"):
+        cmd_ai_train(args)
     elif args.command == "ai-server":
         cmd_ai_server(args)
     elif args.command == "status":

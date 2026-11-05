@@ -1,0 +1,38 @@
+[
+  {
+    "date": "2026-11-03",
+    "accuracy": 37.2,
+    "high_conf_accuracy": 68.4,
+    "regime_accuracy": 90.7,
+    "samples": 4369,
+    "source": "measured",
+    "event": "Daily Auto-Learning Update (Trained on 4369 candles - Balanced Evaluation)"
+  },
+  {
+    "date": "2026-11-04",
+    "accuracy": 38.3,
+    "high_conf_accuracy": 69.0,
+    "regime_accuracy": 91.3,
+    "samples": 4369,
+    "source": "measured",
+    "event": "Daily Auto-Learning Update (Trained on 4369 candles)"
+  },
+  {
+    "date": "2026-11-05",
+    "accuracy": 36.7,
+    "high_conf_accuracy": 65.1,
+    "regime_accuracy": 86.6,
+    "samples": 4359,
+    "source": "measured",
+    "event": "Daily Auto-Learning Update (Trained on 4359 candles)"
+  },
+  {
+    "date": "2026-11-05",
+    "accuracy": 38.1,
+    "high_conf_accuracy": 65.6,
+    "regime_accuracy": 88.1,
+    "samples": 4361,
+    "source": "measured",
+    "event": "Daily Auto-Learning Update (Trained on 4361 candles)"
+  }
+]

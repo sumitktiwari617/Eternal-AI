@@ -19,6 +19,8 @@ if exist "C:\Python314\python.exe" (
 if /I "%1"=="tunnel" goto START_AI_TUNNEL
 if /I "%1"=="model" goto START_AI_MODEL
 if /I "%1"=="ai" goto RUN_CLI_PREDICT
+if /I "%1"=="train" goto RETRAIN_MODEL
+if /I "%1"=="retrain" goto RETRAIN_MODEL
 if /I "%1"=="full" goto START_FULL_STACK
 if /I "%1"=="all" goto START_FULL_STACK
 if /I "%1"=="test" goto RUN_TESTS
@@ -48,10 +50,13 @@ echo.
 echo   [5] Run Single Autonomous AI Prediction (CLI)
 echo       * Evaluates live market conditions and outputs signal and ATR brackets.
 echo.
-echo   [6] Exit
+echo   [6] Retrain AI Model Now (Fetch latest market data & calibrate)
+echo       * Updates model weights and measured validation accuracy.
+echo.
+echo   [7] Exit
 echo.
 echo =================================================================
-set /p choice="Enter your choice [1-6] (Default is 1): "
+set /p choice="Enter your choice [1-7] (Default is 1): "
 
 if "%choice%"=="" set choice=1
 if "%choice%"=="1" goto START_AI_TUNNEL
@@ -59,9 +64,10 @@ if "%choice%"=="2" goto START_AI_MODEL
 if "%choice%"=="3" goto START_FULL_STACK
 if "%choice%"=="4" goto RUN_TESTS
 if "%choice%"=="5" goto RUN_CLI_PREDICT
-if "%choice%"=="6" exit /b 0
+if "%choice%"=="6" goto RETRAIN_MODEL
+if "%choice%"=="7" exit /b 0
 
-echo Invalid choice, please enter 1 to 6.
+echo Invalid choice, please enter 1 to 7.
 timeout /t 2 >nul
 goto MAIN_MENU
 
@@ -129,6 +135,22 @@ echo        RUNNING REAL-TIME AUTONOMOUS AI PREDICTION
 echo =================================================================
 echo.
 %PY_CMD% cli.py ai
+echo.
+if "%1" neq "" goto END
+echo Press any key to return to menu...
+pause >nul
+goto MAIN_MENU
+
+
+:RETRAIN_MODEL
+cls
+title ETERNAL AI Trading Agent - Model Retraining
+color 0B
+echo =================================================================
+echo        AUTONOMOUS MODEL RETRAINING AND WEIGHT CALIBRATION
+echo =================================================================
+echo.
+%PY_CMD% cli.py ai-train
 echo.
 if "%1" neq "" goto END
 echo Press any key to return to menu...

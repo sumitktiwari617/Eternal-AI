@@ -46,6 +46,26 @@ class EternalAIModel:
                 self.regime_accuracy = payload.get("regime_accuracy", 90.7)
                 self.last_train_time = payload.get("train_time")
                 self.total_samples = payload.get("samples", 0)
+
+                # Reconcile with latest measured record in model_learning_history.json
+                hist_file = Path(__file__).resolve().parent.parent / "model_learning_history.json"
+                if hist_file.exists():
+                    try:
+                        import json
+                        with open(hist_file, "r", encoding="utf-8") as hf:
+                            history = json.load(hf)
+                            measured = [h for h in history if isinstance(h, dict) and h.get("source") == "measured"]
+                            if measured:
+                                latest_rec = measured[-1]
+                                if latest_rec.get("accuracy") is not None:
+                                    self.last_accuracy = latest_rec.get("accuracy")
+                                if latest_rec.get("high_conf_accuracy") is not None:
+                                    self.high_conf_accuracy = latest_rec.get("high_conf_accuracy")
+                                if latest_rec.get("regime_accuracy") is not None:
+                                    self.regime_accuracy = latest_rec.get("regime_accuracy")
+                    except Exception:
+                        pass
+
                 return True
             except Exception as e:
                 print(f"Warning: Failed to load existing model: {e}")

@@ -29,7 +29,6 @@ daily_predictions.jsonl
 eternal_paper_log.jsonl
 advisories.jsonl
 predictions.jsonl
-model_learning_history.json
 eternal_backtest_results.csv
 eternal_rsi_backtest_results.csv
 
