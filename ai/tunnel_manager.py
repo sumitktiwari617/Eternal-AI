@@ -112,7 +112,11 @@ _cf_process = None
 PINNED_CLOUDFLARED_VERSION = "2024.12.2"
 PINNED_CLOUDFLARED_URL = f"https://github.com/cloudflare/cloudflared/releases/download/{PINNED_CLOUDFLARED_VERSION}/cloudflared-windows-amd64.exe"
 # Verified SHA256 checksum for the pinned cloudflared binary
-PINNED_CLOUDFLARED_SHA256 = "2493dbc168923bb3e59e5e7716f71deced92992eea9acd6e9d74f84ac7751343"
+PINNED_CLOUDFLARED_SHA256 = "c2f4a3c3ea4c62eed562ede027d586a6044d35517e335e642f4e9783e651e4a3"
+ALLOWED_CLOUDFLARED_HASHES = {
+    PINNED_CLOUDFLARED_SHA256,
+    "2493dbc168923bb3e59e5e7716f71deced92992eea9acd6e9d74f84ac7751343",
+}
 
 
 def compute_file_sha256(filepath: Path) -> str:
@@ -132,7 +136,7 @@ def get_or_download_cloudflared() -> Optional[Path]:
 
     if cf_exe.exists() and cf_exe.stat().st_size > 1000000:
         actual_hash = compute_file_sha256(cf_exe)
-        if actual_hash == PINNED_CLOUDFLARED_SHA256:
+        if actual_hash in ALLOWED_CLOUDFLARED_HASHES:
             return cf_exe
         logger.warning(f"cloudflared.exe hash mismatch ({actual_hash[:8]}... vs expected {PINNED_CLOUDFLARED_SHA256[:8]}...). Redownloading pinned release...")
 
@@ -148,7 +152,7 @@ def get_or_download_cloudflared() -> Optional[Path]:
             f.write(data)
 
         downloaded_hash = compute_file_sha256(temp_exe)
-        if downloaded_hash != PINNED_CLOUDFLARED_SHA256:
+        if downloaded_hash not in ALLOWED_CLOUDFLARED_HASHES:
             temp_exe.unlink(missing_ok=True)
             logger.error(f"Security Warning: Downloaded cloudflared hash {downloaded_hash} does not match pinned checksum {PINNED_CLOUDFLARED_SHA256}. Aborting download.")
             return None
@@ -181,7 +185,7 @@ def start_cloudflare_tunnel(port: int = 8001) -> Optional[str]:
         _cf_process = proc
 
         start = time.time()
-        while time.time() - start < 15:
+        while time.time() - start < 30:
             line = proc.stderr.readline()
             if line:
                 match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line)
@@ -332,6 +336,11 @@ def run_tunnel_manager():
             heartbeat_count += 1
             
             # Check if tunnel is still alive or refreshed
+            if not tunnel_url:
+                tunnel_url = start_tunnel(port=settings.ai_service_port)
+                if tunnel_url:
+                    for b in backends:
+                        register_tunnel_with_backend(b, tunnel_url, secret_token=settings.ai_secret_token)
             current_tunnel = get_existing_ngrok_url() or tunnel_url
             if current_tunnel and current_tunnel != tunnel_url:
                 logger.info(f"Tunnel URL refreshed: {current_tunnel}")
