@@ -45,44 +45,79 @@ def check_ai_server_health(host: str = "127.0.0.1", port: int = 8001) -> bool:
         return False
 
 
-def start_ai_server_if_needed(host: str = "127.0.0.1", port: int = 8001):
+def start_ai_server_if_needed(host: str = "127.0.0.1", port: int = 8001) -> bool:
     """Launches local AI microservice in background if not already running."""
     if check_ai_server_health(host, port):
         logger.info(f"Local AI Model Server is already active on http://{host}:{port}")
-        return
+        return True
+
+    # Pre-check Python dependencies
+    missing_deps = []
+    for pkg in ["fastapi", "uvicorn", "joblib", "sklearn"]:
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing_deps.append(pkg)
+    if missing_deps:
+        logger.error(
+            f"Missing required packages: {', '.join(missing_deps)}. "
+            "Please run: pip install -r requirements.txt"
+        )
+        return False
 
     logger.info(f"Starting Local AI Model Server on port {port}...")
+    log_dir = BASE_DIR / "data"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    server_log = log_dir / "ai_server.log"
+    
     cmd = [sys.executable, str(BASE_DIR / "cli.py"), "ai-server", "--host", host, "--port", str(port)]
     
-    # Run detached background process
-    if os.name == "nt":
-        subprocess.Popen(
-            cmd,
-            cwd=str(BASE_DIR),
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            close_fds=True
-        )
-    else:
-        subprocess.Popen(
-            cmd,
-            cwd=str(BASE_DIR),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True
-        )
+    try:
+        log_handle = open(server_log, "a", encoding="utf-8")
+        log_handle.write(f"\n=== AI Model Server Started {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+        log_handle.flush()
+        
+        # Run detached background process
+        if os.name == "nt":
+            subprocess.Popen(
+                cmd,
+                cwd=str(BASE_DIR),
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                close_fds=True
+            )
+        else:
+            subprocess.Popen(
+                cmd,
+                cwd=str(BASE_DIR),
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                start_new_session=True
+            )
+    except Exception as e:
+        logger.error(f"Failed to launch AI server process: {e}")
+        return False
 
     # Wait for server to boot
     for _ in range(15):
         time.sleep(1.0)
         if check_ai_server_health(host, port):
             logger.info("Local AI Model Server started successfully.")
-            return
+            return True
 
-    logger.warning("AI Model Server did not respond to health check within 15s, continuing...")
+    logger.warning("AI Model Server did not respond to health check within 15s.")
+    if server_log.exists():
+        try:
+            with open(server_log, "r", encoding="utf-8") as f:
+                tail = f.readlines()[-8:]
+                if tail:
+                    logger.warning("Recent AI server output:\n" + "".join(tail))
+        except Exception:
+            pass
+    return False
 
 
 def get_existing_ngrok_url() -> Optional[str]:
@@ -171,11 +206,11 @@ def get_or_download_cloudflared() -> Optional[Path]:
 def start_cloudflare_tunnel(port: int = 8001) -> Optional[str]:
     """Starts zero-config accountless Cloudflare tunnel to local port."""
     global _cf_process
-    cf_exe = get_or_download_cloudflared()
-    if not cf_exe or not cf_exe.exists():
-        return None
-
     try:
+        cf_exe = get_or_download_cloudflared()
+        if not cf_exe or not cf_exe.exists():
+            return None
+
         logger.info(f"Opening zero-config Cloudflare Tunnel to http://127.0.0.1:{port}...")
         proc = subprocess.Popen(
             [str(cf_exe), "tunnel", "--url", f"http://127.0.0.1:{port}"],
@@ -194,6 +229,13 @@ def start_cloudflare_tunnel(port: int = 8001) -> Optional[str]:
                     url = match.group(0)
                     logger.info(f"SUCCESS: Zero-config Cloudflare Tunnel active: {url}")
                     return url
+    except PermissionError:
+        logger.warning("Cloudflare binary blocked or quarantined by antivirus, skipping...")
+    except OSError as e:
+        if getattr(e, "winerror", None) == 225:  # Windows virus detection error
+            logger.warning("Cloudflare binary quarantined by antivirus (WinError 225), skipping...")
+        else:
+            logger.warning(f"Cloudflare tunnel OS error: {e}")
     except Exception as e:
         logger.warning(f"Cloudflare tunnel error: {e}")
     return None
@@ -212,15 +254,18 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
         if sys32_ssh.exists():
             ssh_exe = str(sys32_ssh)
 
+    null_file = "NUL" if os.name == "nt" else "/dev/null"
     try:
         logger.info(f"Opening Antivirus-Safe Built-in OpenSSH Tunnel to http://127.0.0.1:{port}...")
         proc = subprocess.Popen(
             [
                 ssh_exe,
                 "-o", "StrictHostKeyChecking=no",
+                "-o", f"UserKnownHostsFile={null_file}",
                 "-o", "ServerAliveInterval=30",
                 "-o", "ServerAliveCountMax=3",
-                "-R", f"80:localhost:{port}",
+                "-o", "ExitOnForwardFailure=yes",
+                "-R", f"80:127.0.0.1:{port}",
                 "nokey@localhost.run"
             ],
             stdout=subprocess.PIPE,
@@ -230,7 +275,7 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
         _ssh_process = proc
 
         start = time.time()
-        while time.time() - start < 20:
+        while time.time() - start < 25:
             line = proc.stdout.readline() if proc.stdout else ""
             if line:
                 match = re.search(r"https://[a-zA-Z0-9-]+\.lhr\.life", line)
@@ -238,6 +283,9 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
                     url = match.group(0)
                     logger.info(f"SUCCESS: Antivirus-Safe OpenSSH Tunnel active: {url}")
                     return url
+            if proc.poll() is not None:
+                logger.warning(f"OpenSSH tunnel process exited (code {proc.returncode})")
+                break
     except Exception as e:
         logger.warning(f"OpenSSH tunnel error: {e}")
     return None
@@ -248,7 +296,8 @@ def start_tunnel(port: int = 8001) -> Optional[str]:
     Attempts to establish or detect a public HTTPS tunnel to local AI port:
     1. Detects running ngrok on port 4040
     2. Uses pyngrok if auth token is configured
-    3. Auto-falls back to zero-config Cloudflare Tunnel (no account required)
+    3. Built-in Native Windows OpenSSH Tunnel (Quick Heal Immune, 0 downloads, Unlimited) [PRIMARY]
+    4. Auto-falls back to zero-config Cloudflare Tunnel if OpenSSH fails
     """
     # 1. Check existing ngrok
     existing_url = get_existing_ngrok_url()
@@ -270,19 +319,19 @@ def start_tunnel(port: int = 8001) -> Optional[str]:
         except Exception as e:
             logger.debug(f"pyngrok attempt: {e}")
 
-    # 3. Seamless Zero-Config Cloudflare Tunnel (100% Free, No login, No auth token needed)
-    cf_url = start_cloudflare_tunnel(port)
-    if cf_url:
-        return cf_url
-
-    # 4. Built-in Native Windows OpenSSH Tunnel (Quick Heal Immune, 0 downloads, Unlimited)
+    # 3. Built-in Native Windows OpenSSH Tunnel (Quick Heal Immune, 0 downloads, Unlimited)
     ssh_url = start_ssh_tunnel(port)
     if ssh_url:
         return ssh_url
 
+    # 4. Seamless Zero-Config Cloudflare Tunnel (Fallback, no account required)
+    cf_url = start_cloudflare_tunnel(port)
+    if cf_url:
+        return cf_url
+
     # 5. Check if explicit AI_MODEL_SERVICE_URL or manual tunnel is provided
     configured_url = settings.ai_model_service_url
-    if configured_url and (configured_url.startswith("https://") or "ngrok" in configured_url or "cloudflare" in configured_url):
+    if configured_url and (configured_url.startswith("https://") or "ngrok" in configured_url or "cloudflare" in configured_url or "lhr.life" in configured_url):
         logger.info(f"Using pre-configured tunnel URL from settings: {configured_url}")
         return configured_url
 
@@ -346,9 +395,17 @@ def run_tunnel_manager():
     print("=" * 68)
 
     # 1. Ensure AI server is running locally
-    start_ai_server_if_needed(host=settings.ai_service_host, port=settings.ai_service_port)
+    print("\n[STEP 1/4] Checking Local AI Microservice on Port 8001...")
+    ai_ok = start_ai_server_if_needed(host=settings.ai_service_host, port=settings.ai_service_port)
+    if check_ai_server_health(settings.ai_service_host, settings.ai_service_port):
+        print(f"       [+] Local AI Microservice is HEALTHY on http://{settings.ai_service_host}:{settings.ai_service_port}")
+    else:
+        print(f"       [!] WARNING: Local AI Microservice is NOT responding on port {settings.ai_service_port}!")
+        print("           Render will report 'Offline (Tunnel inactive)' until the model is running.")
+        print("           Try running 'start_ai_model.bat' or 'python -m pip install -r requirements.txt'.")
 
     # 2. Establish or discover tunnel
+    print("\n[STEP 2/4] Establishing Antivirus-Safe Cloud Tunnel...")
     tunnel_url = start_tunnel(port=settings.ai_service_port)
 
     # Determine backends to register with
@@ -360,16 +417,32 @@ def run_tunnel_manager():
     backends.append("http://127.0.0.1:8000")
 
     if tunnel_url:
-        print(f"\n[+] Active Public Tunnel: {tunnel_url}")
-        print(f"[+] Local AI Microservice: http://{settings.ai_service_host}:{settings.ai_service_port}")
+        print(f"       [+] Public HTTPS Tunnel Active: {tunnel_url}")
         
         # 3. Register with all target backends
+        print("\n[STEP 3/4] Handshaking and Registering Tunnel with Cloud Backend...")
         for b in backends:
-            register_tunnel_with_backend(b, tunnel_url, secret_token=settings.ai_secret_token)
+            success = register_tunnel_with_backend(b, tunnel_url, secret_token=settings.ai_secret_token)
+            if success:
+                print(f"       [+] Handshake successful with: {b}")
+
+        # 4. End-to-end verification probe
+        print("\n[STEP 4/4] Verifying End-to-End Status with Render Cloud...")
+        time.sleep(2.0)
+        try:
+            import urllib.request
+            verify_url = f"{target_render.rstrip('/')}/api/ai/tunnel-status"
+            with urllib.request.urlopen(verify_url, timeout=6.0) as resp:
+                status_data = json.loads(resp.read().decode("utf-8"))
+                if status_data.get("tunnel_alive"):
+                    print("       [+] SUCCESS: Render Cloud reports Tunnel is ONLINE & ACTIVE!")
+                else:
+                    print("       [!] Registered, but Render probe is waiting for port 8001 to respond.")
+        except Exception as e:
+            print(f"       [!] Cloud status verification note: {e}")
     else:
         print("\n[!] Tunnel was not created automatically.")
-        print("    If you are running ngrok manually, run: ngrok http 8001")
-        print("    Or if testing on Localhost only, local backend will use http://127.0.0.1:8001")
+        print("    If using ngrok manually: ngrok http 8001")
 
     print("\n" + "=" * 68)
     print("   AI MODEL STATUS: ACTIVE & READY FOR PREDICTIONS")

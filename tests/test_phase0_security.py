@@ -289,3 +289,48 @@ def test_cloudflared_sha256_verification():
         assert calculated_hash == expected_hash
     finally:
         tf_path.unlink(missing_ok=True)
+
+
+# =====================================================================
+# 10. ANTIVIRUS-SAFE OPENSSH TUNNEL PRIORITY & BEHAVIOR
+# =====================================================================
+
+def test_openssh_tunnel_priority_over_cloudflare(monkeypatch):
+    """Verify start_tunnel() prioritizes OpenSSH over Cloudflare to avoid downloading .exe files."""
+    from ai.tunnel_manager import start_tunnel
+
+    call_order = []
+
+    def mock_ngrok():
+        return None
+
+    def mock_ssh(port):
+        call_order.append("ssh")
+        return "https://antivirus-safe-tunnel.lhr.life"
+
+    def mock_cf(port):
+        call_order.append("cloudflare")
+        return "https://cloudflared.trycloudflare.com"
+
+    monkeypatch.setattr("ai.tunnel_manager.get_existing_ngrok_url", mock_ngrok)
+    monkeypatch.setattr("ai.tunnel_manager.start_ssh_tunnel", mock_ssh)
+    monkeypatch.setattr("ai.tunnel_manager.start_cloudflare_tunnel", mock_cf)
+    monkeypatch.setattr(settings, "ngrok_authtoken", None)
+
+    url = start_tunnel(8001)
+    assert url == "https://antivirus-safe-tunnel.lhr.life"
+    assert call_order == ["ssh"], "OpenSSH should be called BEFORE Cloudflare to prevent Quick Heal quarantine"
+
+
+def test_cloudflare_tunnel_handles_antivirus_quarantine(monkeypatch):
+    """Verify start_cloudflare_tunnel gracefully catches PermissionError / WinError 225."""
+    from ai.tunnel_manager import start_cloudflare_tunnel
+
+    def mock_quarantined_download():
+        raise PermissionError("Access is denied (quarantined by antivirus)")
+
+    monkeypatch.setattr("ai.tunnel_manager.get_or_download_cloudflared", mock_quarantined_download)
+    url = start_cloudflare_tunnel(8001)
+    assert url is None
+
+

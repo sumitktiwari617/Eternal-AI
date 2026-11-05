@@ -54,7 +54,7 @@ echo   * Handshake Engine:      ai\tunnel_manager.py
 echo.
 echo   PORTABLE ZERO-CONFIG ARCHITECTURE:
 echo      1. Starts the AI model on Port 8001.
-echo      2. Automatically opens a public HTTPS tunnel (ngrok / Cloudflare).
+echo      2. Automatically opens an Antivirus-Safe HTTPS tunnel (Windows OpenSSH).
 echo      3. Automatically registers its URL with your deployed Render Backend.
 echo      4. Keeps Render awake with continuous heartbeats.
 echo.

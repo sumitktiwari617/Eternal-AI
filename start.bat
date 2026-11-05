@@ -32,7 +32,7 @@ echo =================================================================
 echo.
 echo   Please select an option:
 echo.
-echo   [1] Start Laptop AI Model + Cloud Tunnel (ngrok to Render) [DEFAULT]
+echo   [1] Start Laptop AI Model + Cloud Tunnel (Antivirus-Safe OpenSSH / ngrok) [DEFAULT]
 echo       * Runs AI model on Port 8001, opens HTTPS tunnel, and connects
 echo         automatically to your deployed Render Backend!
 echo.

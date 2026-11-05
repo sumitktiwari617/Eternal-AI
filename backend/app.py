@@ -574,7 +574,7 @@ def get_ai_tunnel_status():
             resp = requests.get(
                 f"{settings.ai_model_service_url.rstrip('/')}/health",
                 headers=get_ai_service_headers(),
-                timeout=1.5
+                timeout=4.0
             )
             tunnel_alive = (resp.status_code == 200)
         except Exception:
