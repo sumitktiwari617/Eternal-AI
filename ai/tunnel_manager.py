@@ -107,6 +107,7 @@ DEFAULT_RENDER_BACKEND_URL = "https://eternal-ai-3oat.onrender.com"
 DEFAULT_ADMIN_KEY = "admin_aa3797c179a6236618316e26"
 DEFAULT_AI_TOKEN = "ai_2abc92e5c7993432bb3b002a"
 _cf_process = None
+_ssh_process = None
 
 
 PINNED_CLOUDFLARED_VERSION = "2024.12.2"
@@ -198,6 +199,50 @@ def start_cloudflare_tunnel(port: int = 8001) -> Optional[str]:
     return None
 
 
+def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
+    """
+    Starts an accountless, zero-download public HTTPS tunnel using Windows built-in OpenSSH.
+    100% safe from antivirus / Quick Heal because ssh.exe is a native signed Microsoft system component.
+    Unlimited usage, no sign-up required.
+    """
+    global _ssh_process
+    ssh_exe = "ssh"
+    if os.name == "nt":
+        sys32_ssh = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "OpenSSH" / "ssh.exe"
+        if sys32_ssh.exists():
+            ssh_exe = str(sys32_ssh)
+
+    try:
+        logger.info(f"Opening Antivirus-Safe Built-in OpenSSH Tunnel to http://127.0.0.1:{port}...")
+        proc = subprocess.Popen(
+            [
+                ssh_exe,
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "ServerAliveInterval=30",
+                "-o", "ServerAliveCountMax=3",
+                "-R", f"80:localhost:{port}",
+                "nokey@localhost.run"
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+        _ssh_process = proc
+
+        start = time.time()
+        while time.time() - start < 20:
+            line = proc.stdout.readline() if proc.stdout else ""
+            if line:
+                match = re.search(r"https://[a-zA-Z0-9-]+\.lhr\.life", line)
+                if match:
+                    url = match.group(0)
+                    logger.info(f"SUCCESS: Antivirus-Safe OpenSSH Tunnel active: {url}")
+                    return url
+    except Exception as e:
+        logger.warning(f"OpenSSH tunnel error: {e}")
+    return None
+
+
 def start_tunnel(port: int = 8001) -> Optional[str]:
     """
     Attempts to establish or detect a public HTTPS tunnel to local AI port:
@@ -230,7 +275,12 @@ def start_tunnel(port: int = 8001) -> Optional[str]:
     if cf_url:
         return cf_url
 
-    # 4. Check if explicit AI_MODEL_SERVICE_URL or manual tunnel is provided
+    # 4. Built-in Native Windows OpenSSH Tunnel (Quick Heal Immune, 0 downloads, Unlimited)
+    ssh_url = start_ssh_tunnel(port)
+    if ssh_url:
+        return ssh_url
+
+    # 5. Check if explicit AI_MODEL_SERVICE_URL or manual tunnel is provided
     configured_url = settings.ai_model_service_url
     if configured_url and (configured_url.startswith("https://") or "ngrok" in configured_url or "cloudflare" in configured_url):
         logger.info(f"Using pre-configured tunnel URL from settings: {configured_url}")
@@ -358,6 +408,11 @@ def run_tunnel_manager():
 
         except KeyboardInterrupt:
             logger.info("Tunnel manager shutting down by user request.")
+            if _ssh_process:
+                try:
+                    _ssh_process.terminate()
+                except Exception:
+                    pass
             if _cf_process:
                 try:
                     _cf_process.terminate()
