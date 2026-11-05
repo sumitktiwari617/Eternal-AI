@@ -181,6 +181,7 @@ function renderStatus(data) {
   // 2. Copilot Action Directive Banner (What You Should Do Now)
   if (data.last_decision) {
     const d = data.last_decision;
+    const b = d.brackets || {};
     const directiveEl = document.getElementById("copilot-action-directive");
     const guidanceEl = document.getElementById("copilot-human-guidance");
     const pillAction = document.getElementById("copilot-pill-action");
@@ -190,6 +191,10 @@ function renderStatus(data) {
     const bannerCard = document.getElementById("copilot-banner-card");
     const modeTag = document.getElementById("copilot-mode-tag");
     const timeEl = document.getElementById("copilot-timestamp");
+    const posSizeEl = document.getElementById("copilot-pos-size");
+    const rrRatioEl = document.getElementById("copilot-rr-ratio");
+    const riskEl = document.getElementById("copilot-total-risk");
+    const profitEl = document.getElementById("copilot-total-profit");
 
     if (modeTag) {
       modeTag.textContent = `MODE: ${data.agent_mode || "COPILOT"} (YOU TRADE)`;
@@ -203,15 +208,6 @@ function renderStatus(data) {
       }
     }
 
-    const posSizeEl = document.getElementById("copilot-pos-size");
-    if (posSizeEl) {
-      posSizeEl.textContent = b.suggested_quantity ? `${b.suggested_quantity.toLocaleString('en-IN')} Shares` : "1,000 Shares";
-    }
-    const rrRatioEl = document.getElementById("copilot-rr-ratio");
-    if (rrRatioEl) {
-      rrRatioEl.textContent = b.risk_reward_ratio ? `${b.risk_reward_ratio} (Target 1:3)` : "1:3.00 (Strict R:R)";
-    }
-
     if (directiveEl && d.directive) {
       directiveEl.textContent = d.directive;
     }
@@ -219,18 +215,41 @@ function renderStatus(data) {
       guidanceEl.textContent = d.human_guidance;
     }
 
-    const b = d.brackets || {};
-    if (entryEl) entryEl.textContent = b.entry_price ? `₹${b.entry_price.toFixed(2)}` : "--";
-    if (targetEl) targetEl.textContent = b.target ? `₹${b.target.toFixed(2)}` : "--";
-    if (slEl) slEl.textContent = b.stop_loss ? `₹${b.stop_loss.toFixed(2)}` : "--";
+    const isHold = !d.signal || d.signal === "HOLD" || d.signal === "WAIT";
 
-    const riskEl = document.getElementById("copilot-total-risk");
-    const profitEl = document.getElementById("copilot-total-profit");
-    if (riskEl) riskEl.textContent = b.estimated_max_risk_rupees ? `-₹${b.estimated_max_risk_rupees.toLocaleString('en-IN')}` : "--";
-    if (profitEl) profitEl.textContent = b.estimated_target_profit_rupees ? `+₹${b.estimated_target_profit_rupees.toLocaleString('en-IN')}` : "--";
+    if (posSizeEl) {
+      if (b.suggested_quantity) {
+        posSizeEl.textContent = `${b.suggested_quantity.toLocaleString('en-IN')} Shares`;
+      } else if (isHold) {
+        posSizeEl.textContent = "0 Shares (In Cash)";
+      } else {
+        posSizeEl.textContent = "1,000 Shares";
+      }
+    }
+
+    if (rrRatioEl) {
+      rrRatioEl.textContent = b.risk_reward_ratio ? `${b.risk_reward_ratio} (Target 1:3)` : "1:3.00 (Strict R:R)";
+    }
+
+    if (entryEl) {
+      entryEl.textContent = b.entry_price ? `₹${b.entry_price.toFixed(2)}` : (isHold ? "Standby (No Trade)" : "--");
+    }
+    if (targetEl) {
+      targetEl.textContent = b.target ? `₹${b.target.toFixed(2)}` : (isHold ? "Standby" : "--");
+    }
+    if (slEl) {
+      slEl.textContent = b.stop_loss ? `₹${b.stop_loss.toFixed(2)}` : (isHold ? "Protected (No Risk)" : "--");
+    }
+
+    if (riskEl) {
+      riskEl.textContent = b.estimated_max_risk_rupees ? `-₹${b.estimated_max_risk_rupees.toLocaleString('en-IN')}` : (isHold ? "₹0.00 (Zero Risk)" : "--");
+    }
+    if (profitEl) {
+      profitEl.textContent = b.estimated_target_profit_rupees ? `+₹${b.estimated_target_profit_rupees.toLocaleString('en-IN')}` : (isHold ? "₹0.00" : "--");
+    }
 
     if (pillAction) {
-      pillAction.textContent = d.signal || "WAIT";
+      pillAction.textContent = d.signal || "WAIT / HOLD";
       if (d.signal === "BUY") {
         pillAction.className = "val font-bold text-emerald";
         if (bannerCard) bannerCard.style.borderColor = "#10b981";
@@ -828,6 +847,20 @@ function updateTelemetryFromCandles(latest) {
   if (lowEl && typeof latest.low === "number") lowEl.textContent = `₹${latest.low.toFixed(2)}`;
   const volEl = document.getElementById("quote-vol");
   if (volEl && typeof latest.volume === "number") volEl.textContent = `${Math.round(latest.volume / 1000)}K`;
+
+  const changeEl = document.getElementById("quote-change");
+  if (changeEl && (changeEl.textContent === "--" || changeEl.textContent.trim() === "") && typeof latest.close === "number") {
+    let prevClose = latest.open;
+    if (Array.isArray(cachedCandles) && cachedCandles.length >= 2) {
+      const prev = cachedCandles[cachedCandles.length - 2];
+      if (prev && typeof prev.close === "number") prevClose = prev.close;
+    }
+    const diff = latest.close - (prevClose || latest.close);
+    const diffPct = prevClose > 0 ? (diff / prevClose) * 100 : 0.0;
+    const sign = diff >= 0 ? "+" : "";
+    changeEl.textContent = `${sign}${diff.toFixed(2)} (${sign}${diffPct.toFixed(2)}%)`;
+    changeEl.className = `price-change font-mono ${diff >= 0 ? "text-emerald" : "text-rose"}`;
+  }
 
   const emaFastEl = document.getElementById("ind-ema-fast");
   if (emaFastEl && (emaFastEl.textContent.includes("--") || emaFastEl.textContent.trim() === "")) {

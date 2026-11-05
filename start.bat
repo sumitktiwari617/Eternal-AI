@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title ETERNAL AI Trading Agent - One-Click Launcher [Port 8001 -> Render]
+title ETERNAL AI Trading Agent - One-Click Launcher [Port 8001 to Render]
 color 0A
 
 :: Robust Python detection
