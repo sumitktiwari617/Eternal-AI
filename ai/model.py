@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
+from datetime import datetime
+import zoneinfo
 import joblib
 import pandas as pd
 import numpy as np
@@ -10,6 +12,7 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import accuracy_score, balanced_accuracy_score
 
 from ai.feature_extractor import extract_features, prepare_training_dataset
+from config import settings
 
 
 MODEL_FILE_PATH = Path(__file__).resolve().parent.parent / "eternal_ai_model.joblib"
@@ -42,13 +45,13 @@ class EternalAIModel:
                 self.model = payload.get("model")
                 self.feature_names = payload.get("features", [])
                 self.last_accuracy = payload.get("accuracy", None)
-                self.high_conf_accuracy = payload.get("high_conf_accuracy", 68.4)
-                self.regime_accuracy = payload.get("regime_accuracy", 90.7)
+                self.high_conf_accuracy = payload.get("high_conf_accuracy", None)
+                self.regime_accuracy = payload.get("regime_accuracy", None)
                 self.last_train_time = payload.get("train_time")
                 self.total_samples = payload.get("samples", 0)
 
-                # Reconcile with latest measured record in model_learning_history.json
-                hist_file = Path(__file__).resolve().parent.parent / "model_learning_history.json"
+                # Reconcile with latest measured record in model_learning_history.json if relative to this model
+                hist_file = self.model_path.parent / "model_learning_history.json"
                 if hist_file.exists():
                     try:
                         import json
@@ -208,6 +211,13 @@ class EternalAIModel:
         latest_candle = recent_df.iloc[-1]
         latest_row = latest_feat.iloc[0]
 
+        candle_ts = str(latest_candle.name) if hasattr(latest_candle, "name") and latest_candle.name is not None else None
+        try:
+            tz = zoneinfo.ZoneInfo(settings.timezone)
+            now_ts = datetime.now(tz).isoformat()
+        except Exception:
+            now_ts = datetime.now().isoformat()
+
         return {
             "signal": signal,
             "raw_signal": raw_signal,
@@ -221,6 +231,8 @@ class EternalAIModel:
                 "SELL": round(p_sell * 100.0, 1),
             },
             "latest_price": round(float(latest_candle["close"]), 2),
+            "candle_timestamp": candle_ts,
+            "prediction_timestamp": now_ts,
             "feature_snapshot": {
                 "rsi_9": round(float(latest_row.get("rsi_9", 50.0)), 1),
                 "rsi_14": round(float(latest_row.get("rsi_14", 50.0)), 1),

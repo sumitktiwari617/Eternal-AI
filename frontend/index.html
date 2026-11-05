@@ -93,15 +93,15 @@
             <div class="font-mono font-bold" id="copilot-action-directive" style="color: #f1f5f9; font-size: 1.25rem;">
               ANALYZING MARKET FOR OPTIMAL SETUP...
             </div>
-            <div class="font-mono text-xs text-muted" id="copilot-timestamp">Just now</div>
+            <div class="font-mono text-xs text-muted" id="copilot-timestamp">Awaiting Analysis...</div>
           </div>
           <div class="font-mono text-sm text-cyan mb-2" id="copilot-human-guidance">
             The AI continuously monitors your Kotak Neo feed and filters only trades with strict 1:3 Risk-to-Reward on 1,000 shares.
           </div>
           <div class="grid-4col font-mono text-xs pt-2 mb-2" style="border-top: 1px solid rgba(255,255,255,0.08);">
             <div><span class="label">RECOMMENDED ACTION:</span> <span class="val font-bold text-amber" id="copilot-pill-action">WAIT / HOLD</span></div>
-            <div><span class="label">POSITION SIZE:</span> <span class="val font-bold text-white">1,000 Shares</span></div>
-            <div><span class="label">RISK-REWARD RATIO:</span> <span class="val font-bold text-emerald">1:3.00 (Risk ₹1 vs Profit ₹3)</span></div>
+            <div><span class="label">POSITION SIZE:</span> <span class="val font-bold text-white" id="copilot-pos-size">-- Shares</span></div>
+            <div><span class="label">RISK-REWARD RATIO:</span> <span class="val font-bold text-emerald" id="copilot-rr-ratio">1:3.00 (Risk ₹1 vs Profit ₹3)</span></div>
             <div><span class="label">ENTRY PRICE:</span> <span class="val text-white" id="copilot-entry-price">--</span></div>
           </div>
           <div class="grid-4col font-mono text-xs pt-2" style="border-top: 1px dashed rgba(255,255,255,0.08);">
@@ -123,7 +123,7 @@
               <span class="badge badge-pulse font-mono" id="ai-accuracy-badge" title="Balanced Out-of-Sample Accuracy across active directional signals (Target 1:3 RRR)">Signal Win Rate: Syncing...</span>
               <span class="badge font-mono" id="ai-conviction-badge" style="background: #0f2b38; color: #38bdf8; border: 1px solid #0284c7;" title="Precision on trades where model confidence >= 50%">High-Conf: Syncing...</span>
               <span class="badge font-mono" id="ai-source-badge" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4);">Tunnel: Checking...</span>
-              <span class="badge" id="signal-updated">Just now</span>
+              <span class="badge" id="signal-updated">Awaiting Analysis...</span>
             </div>
           </div>
           <div class="signal-display">
@@ -157,14 +157,14 @@
             <span class="badge badge-pulse" id="quote-freshness">Live Feed</span>
           </div>
           <div class="quote-display">
-            <div class="price-big font-mono" id="quote-ltp">₹322.60</div>
-            <div class="price-change font-mono" id="quote-change">+2.60 (+0.81%)</div>
+            <div class="price-big font-mono" id="quote-ltp">₹--.--</div>
+            <div class="price-change font-mono" id="quote-change">--</div>
           </div>
           <div class="quote-stats grid-4col font-mono">
-            <div><span class="label">OPEN</span><span class="val" id="quote-open">₹320.00</span></div>
-            <div><span class="label">HIGH</span><span class="val" id="quote-high">₹324.50</span></div>
-            <div><span class="label">LOW</span><span class="val" id="quote-low">₹319.50</span></div>
-            <div><span class="label">VOL</span><span class="val" id="quote-vol">125K</span></div>
+            <div><span class="label">OPEN</span><span class="val" id="quote-open">₹--.--</span></div>
+            <div><span class="label">HIGH</span><span class="val" id="quote-high">₹--.--</span></div>
+            <div><span class="label">LOW</span><span class="val" id="quote-low">₹--.--</span></div>
+            <div><span class="label">VOL</span><span class="val" id="quote-vol">--</span></div>
           </div>
         </div>
       </div>

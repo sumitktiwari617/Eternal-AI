@@ -195,8 +195,21 @@ function renderStatus(data) {
       modeTag.textContent = `MODE: ${data.agent_mode || "COPILOT"} (YOU TRADE)`;
     }
 
-    if (timeEl && data.last_analysis_time) {
-      timeEl.textContent = data.last_analysis_time.slice(11, 19) + " IST";
+    if (timeEl) {
+      if (d.candle_timestamp) {
+        timeEl.textContent = `Candle: ${d.candle_timestamp.slice(11, 16)} IST (${data.last_analysis_time?.slice(11, 19) || ""} IST)`;
+      } else if (data.last_analysis_time) {
+        timeEl.textContent = data.last_analysis_time.slice(11, 19) + " IST";
+      }
+    }
+
+    const posSizeEl = document.getElementById("copilot-pos-size");
+    if (posSizeEl) {
+      posSizeEl.textContent = b.suggested_quantity ? `${b.suggested_quantity.toLocaleString('en-IN')} Shares` : "1,000 Shares";
+    }
+    const rrRatioEl = document.getElementById("copilot-rr-ratio");
+    if (rrRatioEl) {
+      rrRatioEl.textContent = b.risk_reward_ratio ? `${b.risk_reward_ratio} (Target 1:3)` : "1:3.00 (Strict R:R)";
     }
 
     if (directiveEl && d.directive) {
@@ -234,7 +247,7 @@ function renderStatus(data) {
   // 2. Quote Card
   if (data.last_quote) {
     const q = data.last_quote;
-    document.getElementById("quote-ltp").textContent = `₹${q.ltp?.toFixed(2) || "0.00"}`;
+    document.getElementById("quote-ltp").textContent = q.ltp != null ? `₹${q.ltp.toFixed(2)}` : "₹--.--";
     const changeEl = document.getElementById("quote-change");
     const change = q.change || 0.0;
     const changePct = q.change_pct || 0.0;
@@ -242,10 +255,10 @@ function renderStatus(data) {
     changeEl.textContent = `${sign}${change.toFixed(2)} (${sign}${changePct.toFixed(2)}%)`;
     changeEl.className = `price-change font-mono ${change >= 0 ? "text-emerald" : "text-rose"}`;
 
-    document.getElementById("quote-open").textContent = `₹${q.open?.toFixed(2) || "--"}`;
-    document.getElementById("quote-high").textContent = `₹${q.high?.toFixed(2) || "--"}`;
-    document.getElementById("quote-low").textContent = `₹${q.low?.toFixed(2) || "--"}`;
-    document.getElementById("quote-vol").textContent = `${Math.round((q.volume || 0) / 1000)}K`;
+    document.getElementById("quote-open").textContent = q.open != null ? `₹${q.open.toFixed(2)}` : "₹--.--";
+    document.getElementById("quote-high").textContent = q.high != null ? `₹${q.high.toFixed(2)}` : "₹--.--";
+    document.getElementById("quote-low").textContent = q.low != null ? `₹${q.low.toFixed(2)}` : "₹--.--";
+    document.getElementById("quote-vol").textContent = q.volume ? `${Math.round(q.volume / 1000)}K` : "--";
   }
 
   // 3. AI Signal Decision Card
@@ -258,6 +271,16 @@ function renderStatus(data) {
     if (d.signal === "BUY") badge.classList.add("badge-buy");
     else if (d.signal === "SELL") badge.classList.add("badge-sell");
     else badge.classList.add("badge-wait");
+
+    const sigUpdated = document.getElementById("signal-updated");
+    if (sigUpdated) {
+      if (d.candle_timestamp) {
+        sigUpdated.textContent = `Candle: ${d.candle_timestamp.slice(11, 16)} IST`;
+        sigUpdated.title = `Evaluated on candle closed at ${d.candle_timestamp}`;
+      } else if (data.last_analysis_time) {
+        sigUpdated.textContent = `${data.last_analysis_time.slice(11, 19)} IST`;
+      }
+    }
 
     document.getElementById("signal-reason").textContent = d.reason || "Analyzing candles...";
     document.getElementById("signal-meta").textContent = 
@@ -482,6 +505,23 @@ function renderAIPrediction(pred, source = "localhost") {
     if (pred.signal === "BUY") badge.classList.add("badge-buy");
     else if (pred.signal === "SELL") badge.classList.add("badge-sell");
     else badge.classList.add("badge-wait");
+  }
+
+  // Update real timestamp on AI Card badge (no hardcoded "Just now")
+  const updEl = document.getElementById("signal-updated");
+  if (updEl) {
+    if (pred.candle_timestamp) {
+      const timePart = pred.candle_timestamp.slice(11, 16);
+      updEl.textContent = `Candle: ${timePart} IST`;
+      updEl.title = `Evaluated on candle closed at ${pred.candle_timestamp}`;
+    } else if (pred.prediction_timestamp) {
+      const timePart = pred.prediction_timestamp.slice(11, 19);
+      updEl.textContent = `${timePart} IST`;
+      updEl.title = `Inference computed at: ${pred.prediction_timestamp}`;
+    } else {
+      const now = new Date();
+      updEl.textContent = `${now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false })} IST`;
+    }
   }
 
   // 3. Confidence Bar & Value

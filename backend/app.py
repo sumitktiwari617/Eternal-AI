@@ -676,6 +676,8 @@ def get_ai_prediction(request: Request):
         "reason": reason,
         "brackets": brackets,
         "latest_price": price,
+        "candle_timestamp": pred.get("candle_timestamp"),
+        "prediction_timestamp": pred.get("prediction_timestamp"),
         "feature_snapshot": pred["feature_snapshot"],
         "last_train_time": pred["last_train_time"],
         "note": pred["note"],
