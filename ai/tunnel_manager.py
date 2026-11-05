@@ -23,7 +23,23 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from config import settings
+try:
+    from config import settings
+except ImportError:
+    print("\n" + "=" * 68)
+    print(" [ERROR] MISSING PROJECT FILES ON THIS PC!")
+    print("=" * 68)
+    print(" You cannot run 'tunnel_manager.py' by itself as a single file.")
+    print(" The AI tunnel is a bridge to the AI model, but the AI brain files are missing:")
+    print("   - ai/ (AI server and predictive model)")
+    print("   - eternal_ai_model.joblib (Trained weights)")
+    print("   - config.py, cli.py, requirements.txt")
+    print("\n TO FIX THIS ON THIS LAPTOP:")
+    print(" 1. Copy the entire 'Eternal-AI' project folder to this PC, or run:")
+    print("      git clone https://github.com/sumitktiwari617/Eternal-AI.git")
+    print(" 2. Open start.bat and select [1] to start the AI model and tunnel.")
+    print("=" * 68 + "\n")
+    sys.exit(1)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,6 +66,16 @@ def start_ai_server_if_needed(host: str = "127.0.0.1", port: int = 8001) -> bool
     if check_ai_server_health(host, port):
         logger.info(f"Local AI Model Server is already active on http://{host}:{port}")
         return True
+
+    # Pre-check project structure
+    if not (BASE_DIR / "cli.py").exists() or not (BASE_DIR / "ai" / "server.py").exists():
+        logger.error(
+            "CRITICAL ERROR: Core AI files (cli.py or ai/server.py) are missing on this PC! "
+            "You cannot copy only 'tunnel_manager.py' by itself. "
+            "The tunnel is only a bridge; it needs the AI model server running on port 8001. "
+            "Please copy the entire Eternal-AI folder to this PC or run 'git clone'."
+        )
+        return False
 
     # Pre-check Python dependencies
     missing_deps = []
@@ -165,42 +191,26 @@ def compute_file_sha256(filepath: Path) -> str:
 
 
 def get_or_download_cloudflared() -> Optional[Path]:
-    """Retrieves or auto-downloads standalone Cloudflare quick tunnel binary with SHA256 verification."""
-    user_dir = Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / "AppData" / "Local" / "cloudflared"
-    user_dir.mkdir(parents=True, exist_ok=True)
-    cf_exe = user_dir / "cloudflared.exe"
+    """
+    Checks if cloudflared binary is ALREADY installed by the user.
+    NEVER auto-downloads to avoid triggering antivirus (e.g. Quick Heal) heuristics.
+    """
+    import shutil
+    # 1. Check if cloudflared is installed on system PATH
+    cf_path = shutil.which("cloudflared")
+    if cf_path:
+        return Path(cf_path)
 
+    # 2. Check local AppData only if already present and verified
+    user_dir = Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / "AppData" / "Local" / "cloudflared"
+    cf_exe = user_dir / "cloudflared.exe"
     if cf_exe.exists() and cf_exe.stat().st_size > 1000000:
         actual_hash = compute_file_sha256(cf_exe)
         if actual_hash in ALLOWED_CLOUDFLARED_HASHES:
             return cf_exe
-        logger.warning(f"cloudflared.exe hash mismatch ({actual_hash[:8]}... vs expected {PINNED_CLOUDFLARED_SHA256[:8]}...). Redownloading pinned release...")
 
-    try:
-        import urllib.request
-        logger.info(f"Downloading pinned Cloudflare tunnel v{PINNED_CLOUDFLARED_VERSION}...")
-        req = urllib.request.Request(PINNED_CLOUDFLARED_URL, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=40.0) as resp:
-            data = resp.read()
-
-        temp_exe = user_dir / "cloudflared.tmp"
-        with open(temp_exe, "wb") as f:
-            f.write(data)
-
-        downloaded_hash = compute_file_sha256(temp_exe)
-        if downloaded_hash not in ALLOWED_CLOUDFLARED_HASHES:
-            temp_exe.unlink(missing_ok=True)
-            logger.error(f"Security Warning: Downloaded cloudflared hash {downloaded_hash} does not match pinned checksum {PINNED_CLOUDFLARED_SHA256}. Aborting download.")
-            return None
-
-        if cf_exe.exists():
-            cf_exe.unlink()
-        temp_exe.rename(cf_exe)
-        logger.info("Cloudflare tunnel binary verified with SHA256 and ready.")
-        return cf_exe
-    except Exception as e:
-        logger.warning(f"Failed to auto-download cloudflared: {e}")
-        return None
+    # We do NOT download cloudflared dynamically to ensure Quick Heal never triggers
+    return None
 
 
 def start_cloudflare_tunnel(port: int = 8001) -> Optional[str]:
@@ -278,9 +288,11 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
         while time.time() - start < 25:
             line = proc.stdout.readline() if proc.stdout else ""
             if line:
-                match = re.search(r"https://[a-zA-Z0-9-]+\.lhr\.life", line)
+                match = re.search(r"https://[a-zA-Z0-9\.\-]+\.(?:lhr\.life|lhr\.pro|lhrtunnel\.com|localhost\.run)", line)
+                if not match and "https://" in line and (".life" in line or ".pro" in line or "localhost" in line):
+                    match = re.search(r"https://[^\s\"']+", line)
                 if match:
-                    url = match.group(0)
+                    url = match.group(0).rstrip(".")
                     logger.info(f"SUCCESS: Antivirus-Safe OpenSSH Tunnel active: {url}")
                     return url
             if proc.poll() is not None:
