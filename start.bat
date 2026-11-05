@@ -1,8 +1,8 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title ETERNAL AI Trading Agent - System Launcher
-color 0B
+title ETERNAL AI Trading Agent - One-Click Launcher [Port 8001 -> Render]
+color 0A
 
 :: Robust Python detection
 if exist "C:\Python314\python.exe" (
@@ -15,7 +15,10 @@ if exist "C:\Python314\python.exe" (
     set "PY_CMD=python"
 )
 
-:: Check CLI arguments for direct automated startup
+:: Check CLI arguments for specific commands or menu access
+if /I "%1"=="menu" goto MAIN_MENU
+if /I "%1"=="--menu" goto MAIN_MENU
+if /I "%1"=="-m" goto MAIN_MENU
 if /I "%1"=="tunnel" goto START_AI_TUNNEL
 if /I "%1"=="model" goto START_AI_MODEL
 if /I "%1"=="ai" goto RUN_CLI_PREDICT
@@ -24,6 +27,17 @@ if /I "%1"=="retrain" goto RETRAIN_MODEL
 if /I "%1"=="full" goto START_FULL_STACK
 if /I "%1"=="all" goto START_FULL_STACK
 if /I "%1"=="test" goto RUN_TESTS
+if /I "%1"=="manual" goto CONNECT_MANUAL_TUNNEL
+
+:: DEFAULT ACTION (ONE-CLICK):
+:: Double-clicking start.bat directly launches AI Model + OpenSSH Cloud Tunnel!
+echo =================================================================
+echo         ETERNAL AI - ONE-CLICK INSTANT CLOUD LAUNCHER
+echo         Starting AI Model on Port 8001 + Connecting to Render...
+echo =================================================================
+echo.
+goto START_AI_TUNNEL
+
 
 :MAIN_MENU
 cls
@@ -34,7 +48,7 @@ echo =================================================================
 echo.
 echo   Please select an option:
 echo.
-echo   [1] Start Laptop AI Model + Cloud Tunnel (Antivirus-Safe OpenSSH / ngrok) [DEFAULT]
+echo   [1] Start Laptop AI Model + Cloud Tunnel (Antivirus-Safe OpenSSH) [DEFAULT]
 echo       * Runs AI model on Port 8001, opens HTTPS tunnel, and connects
 echo         automatically to your deployed Render Backend!
 echo.
@@ -53,10 +67,15 @@ echo.
 echo   [6] Retrain AI Model Now (Fetch latest market data & calibrate)
 echo       * Updates model weights and measured validation accuracy.
 echo.
-echo   [7] Exit
+echo   [7] Connect Manual Tunnel URL to Cloud Render
+echo       * Paste any manual ngrok or custom tunnel URL to link with Render.
+echo.
+echo   [8] Clean & Close All Ports (8000, 8001, 4040) and Stop Tunnels
+echo.
+echo   [9] Exit
 echo.
 echo =================================================================
-set /p choice="Enter your choice [1-7] (Default is 1): "
+set /p choice="Enter your choice [1-9] (Default is 1): "
 
 if "%choice%"=="" set choice=1
 if "%choice%"=="1" goto START_AI_TUNNEL
@@ -65,9 +84,11 @@ if "%choice%"=="3" goto START_FULL_STACK
 if "%choice%"=="4" goto RUN_TESTS
 if "%choice%"=="5" goto RUN_CLI_PREDICT
 if "%choice%"=="6" goto RETRAIN_MODEL
-if "%choice%"=="7" exit /b 0
+if "%choice%"=="7" goto CONNECT_MANUAL_TUNNEL
+if "%choice%"=="8" goto CLEAN_PORTS
+if "%choice%"=="9" exit /b 0
 
-echo Invalid choice, please enter 1 to 7.
+echo Invalid choice, please enter 1 to 9.
 timeout /t 2 >nul
 goto MAIN_MENU
 
@@ -155,6 +176,45 @@ echo.
 if "%1" neq "" goto END
 echo Press any key to return to menu...
 pause >nul
+goto MAIN_MENU
+
+
+:CONNECT_MANUAL_TUNNEL
+cls
+title ETERNAL AI - Connect Manual Tunnel to Render
+color 0B
+echo =================================================================
+echo        CONNECT MANUAL TUNNEL TO CLOUD RENDER
+echo =================================================================
+echo.
+set /p manual_url="Enter your Public Tunnel URL (e.g. https://xxxx.lhr.life or https://xxxx.ngrok-free.app): "
+if "%manual_url%"=="" (
+    echo [ERROR] No URL provided. Returning to menu.
+    timeout /t 2 >nul
+    goto MAIN_MENU
+)
+%PY_CMD% cli.py register-tunnel %manual_url%
+echo.
+pause
+goto MAIN_MENU
+
+
+:CLEAN_PORTS
+cls
+title ETERNAL AI - Clean Ports and Stop Tunnels
+color 0C
+echo =================================================================
+echo        CLOSING ALL PORTS (8000, 8001, 4040) AND TUNNELS
+echo =================================================================
+echo.
+taskkill /F /IM ssh.exe 2>nul
+taskkill /F /IM ngrok.exe 2>nul
+taskkill /F /IM cloudflared.exe 2>nul
+powershell -Command "Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'ai-server|server|uvicorn|tunnel_manager' } | Stop-Process -Force -ErrorAction SilentlyContinue" 2>nul
+echo [+] All ports and tunnels closed successfully.
+echo.
+if "%1" neq "" goto END
+pause
 goto MAIN_MENU
 
 

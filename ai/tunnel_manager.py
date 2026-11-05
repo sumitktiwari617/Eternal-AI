@@ -448,6 +448,12 @@ def run_tunnel_manager():
                 status_data = json.loads(resp.read().decode("utf-8"))
                 if status_data.get("tunnel_alive"):
                     print("       [+] SUCCESS: Render Cloud reports Tunnel is ONLINE & ACTIVE!")
+                    print(f"       [+] Opening Live Dashboard: {target_render}")
+                    try:
+                        import webbrowser
+                        webbrowser.open(target_render)
+                    except Exception:
+                        pass
                 else:
                     print("       [!] Registered, but Render probe is waiting for port 8001 to respond.")
         except Exception as e:
