@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 import zoneinfo
@@ -9,6 +10,9 @@ import numpy as np
 from config import Settings, settings as default_settings
 
 logger = logging.getLogger(__name__)
+
+# Lightweight in-memory cache to prevent redundant HTTP candle fetches
+_CANDLE_CACHE: Dict[str, Any] = {}
 
 
 class DataUnavailableError(Exception):
@@ -38,6 +42,14 @@ def fetch_historical_candles(
     cfg = config or default_settings
     sym = symbol or cfg.symbol
     tz = zoneinfo.ZoneInfo(cfg.timezone)
+
+    # Check fast in-memory cache (15-second TTL) for production runtime
+    is_prod_env = (config is None or config is default_settings)
+    cache_key = f"{sym}_{range_period}_{interval}"
+    if is_prod_env and cache_key in _CANDLE_CACHE:
+        cached_df, cached_at = _CANDLE_CACHE[cache_key]
+        if time.time() - cached_at < 15.0:
+            return cached_df.copy()
 
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range={range_period}&interval={interval}"
     headers = {
@@ -73,6 +85,7 @@ def fetch_historical_candles(
                     if not df.empty:
                         df.attrs["source"] = "YAHOO"
                         df.attrs["fetched_at"] = datetime.now(tz).isoformat()
+                        _CANDLE_CACHE[cache_key] = (df.copy(), time.time())
                         return df
     except Exception as ex:
         logger.warning(f"Yahoo Finance candle fetch failed for {sym}: {ex}")

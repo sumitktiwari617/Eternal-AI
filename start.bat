@@ -5,15 +5,24 @@ title ETERNAL AI Trading Agent - System Launcher
 color 0B
 
 :: Robust Python detection
-if exist "C:\Python314\python.exe" (
-    set "PY_CMD=C:\Python314\python.exe"
-) else if exist "C:\Python312\python.exe" (
-    set "PY_CMD=C:\Python312\python.exe"
-) else if exist "C:\Python311\python.exe" (
-    set "PY_CMD=C:\Python311\python.exe"
-) else (
-    set "PY_CMD=python"
+set "PY_CMD="
+if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+if not defined PY_CMD if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+if not defined PY_CMD if exist "%LOCALAPPDATA%\Programs\Python\Python314\python.exe" set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
+if not defined PY_CMD if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+if not defined PY_CMD if exist "C:\Python314\python.exe" set "PY_CMD=C:\Python314\python.exe"
+if not defined PY_CMD if exist "C:\Python313\python.exe" set "PY_CMD=C:\Python313\python.exe"
+if not defined PY_CMD if exist "C:\Python312\python.exe" set "PY_CMD=C:\Python312\python.exe"
+if not defined PY_CMD if exist "C:\Python311\python.exe" set "PY_CMD=C:\Python311\python.exe"
+if not defined PY_CMD (
+    py -3 -c "import sys" >nul 2>nul
+    if not errorlevel 1 set "PY_CMD=py -3"
 )
+if not defined PY_CMD (
+    py -c "import sys" >nul 2>nul
+    if not errorlevel 1 set "PY_CMD=py"
+)
+if not defined PY_CMD set "PY_CMD=python"
 
 :: Check CLI arguments for direct automated startup
 if /I "%1"=="tunnel" goto START_AI_TUNNEL

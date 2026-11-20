@@ -246,6 +246,7 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
     Starts an accountless, zero-download public HTTPS tunnel using Windows built-in OpenSSH.
     100% safe from antivirus / Quick Heal because ssh.exe is a native signed Microsoft system component.
     Unlimited usage, no sign-up required.
+    Tries nokey@localhost.run first; falls back to serveo.net.
     """
     global _ssh_process
     ssh_exe = "ssh"
@@ -255,8 +256,18 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
             ssh_exe = str(sys32_ssh)
 
     null_file = "NUL" if os.name == "nt" else "/dev/null"
+
+    def _drain_stdout(pipe):
+        """Continuously drains stdout in a daemon thread so the OS pipe buffer never deadlocks."""
+        try:
+            for _ in pipe:
+                pass
+        except Exception:
+            pass
+
+    # 1. Try localhost.run (Primary)
     try:
-        logger.info(f"Opening Antivirus-Safe Built-in OpenSSH Tunnel to http://127.0.0.1:{port}...")
+        logger.info(f"Opening Antivirus-Safe Built-in OpenSSH Tunnel to http://127.0.0.1:{port} (via localhost.run)...")
         proc = subprocess.Popen(
             [
                 ssh_exe,
@@ -275,19 +286,58 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
         _ssh_process = proc
 
         start = time.time()
-        while time.time() - start < 25:
+        while time.time() - start < 15:
             line = proc.stdout.readline() if proc.stdout else ""
             if line:
-                match = re.search(r"https://[a-zA-Z0-9-]+\.lhr\.life", line)
+                # Matches both https://<hash>.app.lhr.life and https://<hash>.lhr.life
+                match = re.search(r"https://[a-zA-Z0-9._-]+\.lhr\.[a-zA-Z]+", line)
                 if match:
-                    url = match.group(0)
+                    url = match.group(0).rstrip("/.,")
                     logger.info(f"SUCCESS: Antivirus-Safe OpenSSH Tunnel active: {url}")
+                    threading.Thread(target=_drain_stdout, args=(proc.stdout,), daemon=True).start()
                     return url
             if proc.poll() is not None:
-                logger.warning(f"OpenSSH tunnel process exited (code {proc.returncode})")
+                logger.warning(f"localhost.run OpenSSH tunnel process exited (code {proc.returncode})")
                 break
     except Exception as e:
-        logger.warning(f"OpenSSH tunnel error: {e}")
+        logger.warning(f"localhost.run OpenSSH tunnel error: {e}")
+
+    # 2. Try serveo.net (Secondary OpenSSH fallback)
+    try:
+        logger.info(f"Attempting OpenSSH fallback tunnel via serveo.net...")
+        proc = subprocess.Popen(
+            [
+                ssh_exe,
+                "-o", "StrictHostKeyChecking=no",
+                "-o", f"UserKnownHostsFile={null_file}",
+                "-o", "ServerAliveInterval=30",
+                "-o", "ServerAliveCountMax=3",
+                "-o", "ExitOnForwardFailure=yes",
+                "-R", f"80:127.0.0.1:{port}",
+                "serveo.net"
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+        _ssh_process = proc
+
+        start = time.time()
+        while time.time() - start < 15:
+            line = proc.stdout.readline() if proc.stdout else ""
+            if line:
+                match = re.search(r"https://[a-zA-Z0-9.-]+\.serveo(?:usercontent)?\.com", line)
+                if match:
+                    url = match.group(0).rstrip("/.,")
+                    logger.info(f"SUCCESS: Serveo OpenSSH Tunnel active: {url}")
+                    threading.Thread(target=_drain_stdout, args=(proc.stdout,), daemon=True).start()
+                    return url
+            if proc.poll() is not None:
+                logger.warning(f"Serveo OpenSSH tunnel process exited (code {proc.returncode})")
+                break
+    except Exception as e:
+        logger.warning(f"Serveo OpenSSH tunnel error: {e}")
+
     return None
 
 
@@ -331,7 +381,7 @@ def start_tunnel(port: int = 8001) -> Optional[str]:
 
     # 5. Check if explicit AI_MODEL_SERVICE_URL or manual tunnel is provided
     configured_url = settings.ai_model_service_url
-    if configured_url and (configured_url.startswith("https://") or "ngrok" in configured_url or "cloudflare" in configured_url or "lhr.life" in configured_url):
+    if configured_url and (configured_url.startswith("https://") or "ngrok" in configured_url or "cloudflare" in configured_url or "lhr.life" in configured_url or "serveo" in configured_url):
         logger.info(f"Using pre-configured tunnel URL from settings: {configured_url}")
         return configured_url
 
@@ -344,8 +394,8 @@ def register_tunnel_with_backend(backend_url: str, tunnel_url: str, secret_token
     """
     import urllib.request
     endpoint = f"{backend_url.rstrip('/')}/api/ai/register-tunnel"
-    token = secret_token or getattr(settings, "ai_secret_token", None) or DEFAULT_AI_TOKEN
-    admin_key = getattr(settings, "admin_api_key", None) or DEFAULT_ADMIN_KEY
+    token = (secret_token or "").strip() or (getattr(settings, "ai_secret_token", "") or "").strip() or DEFAULT_AI_TOKEN
+    admin_key = (getattr(settings, "admin_api_key", "") or "").strip() or DEFAULT_ADMIN_KEY
 
     payload = {
         "tunnel_url": tunnel_url,
@@ -365,7 +415,7 @@ def register_tunnel_with_backend(backend_url: str, tunnel_url: str, secret_token
             headers=headers,
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
+        with urllib.request.urlopen(req, timeout=12.0) as resp:
             if resp.status == 200:
                 body = json.loads(resp.read().decode("utf-8"))
                 logger.info(f"SUCCESS: Tunnel registered with {backend_url} -> {body.get('message')}")
@@ -451,19 +501,31 @@ def run_tunnel_manager():
     print("   Press Ctrl+C to stop.")
     print("=" * 68 + "\n")
 
-    # 4. Continuous keep-alive heartbeat loop (every 45s)
+    # 4. Continuous keep-alive heartbeat loop (every 30s)
     heartbeat_count = 0
     while True:
         try:
-            time.sleep(45.0)
+            time.sleep(30.0)
             heartbeat_count += 1
             
-            # Check if tunnel is still alive or refreshed
+            # Check if active tunnel process terminated unexpectedly
+            if _ssh_process and _ssh_process.poll() is not None:
+                logger.warning(f"OpenSSH tunnel process disconnected (code {_ssh_process.poll()}). Re-establishing...")
+                tunnel_url = None
+                _ssh_process = None
+
+            if _cf_process and _cf_process.poll() is not None:
+                logger.warning("Cloudflare tunnel process disconnected. Re-establishing...")
+                tunnel_url = None
+                _cf_process = None
+
+            # Re-establish tunnel if lost
             if not tunnel_url:
                 tunnel_url = start_tunnel(port=settings.ai_service_port)
                 if tunnel_url:
                     for b in backends:
                         register_tunnel_with_backend(b, tunnel_url, secret_token=settings.ai_secret_token)
+
             current_tunnel = get_existing_ngrok_url() or tunnel_url
             if current_tunnel and current_tunnel != tunnel_url:
                 logger.info(f"Tunnel URL refreshed: {current_tunnel}")
@@ -471,13 +533,19 @@ def run_tunnel_manager():
                 for b in backends:
                     register_tunnel_with_backend(b, tunnel_url, secret_token=settings.ai_secret_token)
 
+            # Periodically ensure registration remains fresh on cloud backend (every 2 minutes)
+            if heartbeat_count % 4 == 0 and tunnel_url:
+                target_render = settings.render_backend_url or DEFAULT_RENDER_BACKEND_URL
+                if target_render:
+                    register_tunnel_with_backend(target_render, tunnel_url, secret_token=settings.ai_secret_token)
+
             # Send keepalive ping to cloud backend to prevent cold start / sleep
             target_render = settings.render_backend_url or DEFAULT_RENDER_BACKEND_URL
             if target_render:
                 ping_backend(target_render)
 
             if heartbeat_count % 10 == 0:
-                logger.info(f"Heartbeat tick #{heartbeat_count} | AI Server Healthy on port {settings.ai_service_port}")
+                logger.info(f"Heartbeat tick #{heartbeat_count} | AI Server Healthy on port {settings.ai_service_port} | Tunnel: {tunnel_url}")
 
         except KeyboardInterrupt:
             logger.info("Tunnel manager shutting down by user request.")

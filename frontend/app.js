@@ -35,6 +35,7 @@ function getApiBase() {
 let pollTimer = null;
 let currentConfig = null;
 let cachedCandles = [];
+let currentActiveAdvisory = null;
 
 // --- Initialize App ---
 document.addEventListener("DOMContentLoaded", () => {
@@ -46,6 +47,11 @@ document.addEventListener("DOMContentLoaded", () => {
   initLocalAIModelConnection();
   bindOrderControls();
 
+  const refreshAdvBtn = document.getElementById("btn-refresh-advisories");
+  if (refreshAdvBtn) refreshAdvBtn.addEventListener("click", fetchAdvisories);
+  const closeAdvBtn = document.getElementById("btn-close-advisory");
+  if (closeAdvBtn) closeAdvBtn.addEventListener("click", closeActiveAdvisory);
+
   // Initial data fetch
   fetchStatus();
   fetchAIPrediction();
@@ -53,6 +59,7 @@ document.addEventListener("DOMContentLoaded", () => {
   fetchConfig();
   fetchMarketData();
   fetchLogs();
+  fetchAdvisories();
 
   // Start continuous polling (every 4 seconds)
   let pollCycle = 0;
@@ -60,6 +67,9 @@ document.addEventListener("DOMContentLoaded", () => {
     pollCycle++;
     fetchStatus();
     fetchAIPrediction();
+    if (pollCycle % 2 === 0) {
+      fetchAdvisories();
+    }
     if (pollCycle % 3 === 0) {
       checkLocalAIHealth(false);
     }
@@ -187,6 +197,29 @@ function renderStatus(data) {
     const bannerCard = document.getElementById("copilot-banner-card");
     const modeTag = document.getElementById("copilot-mode-tag");
     const timeEl = document.getElementById("copilot-timestamp");
+    const lockStatusEl = document.getElementById("copilot-lock-status");
+    const closeAdvBtn = document.getElementById("btn-close-advisory");
+
+    const activeAdv = data.active_advisory || (d && d.active_advisory);
+    currentActiveAdvisory = activeAdv || null;
+
+    if (activeAdv) {
+      if (lockStatusEl) {
+        lockStatusEl.textContent = `LOCKED: ${activeAdv.side} (1:3 RRR)`;
+        lockStatusEl.className = "status-pill status-running font-mono";
+        lockStatusEl.style.background = activeAdv.side === "BUY" ? "rgba(16, 185, 129, 0.25)" : "rgba(239, 68, 68, 0.25)";
+        lockStatusEl.style.color = activeAdv.side === "BUY" ? "#34d399" : "#f87171";
+      }
+      if (closeAdvBtn) closeAdvBtn.style.display = "inline-block";
+    } else {
+      if (lockStatusEl) {
+        lockStatusEl.textContent = "STATUS: SCANNING";
+        lockStatusEl.className = "status-pill status-idle font-mono";
+        lockStatusEl.style.background = "";
+        lockStatusEl.style.color = "";
+      }
+      if (closeAdvBtn) closeAdvBtn.style.display = "none";
+    }
 
     if (modeTag) {
       modeTag.textContent = `MODE: ${data.agent_mode || "COPILOT"} (YOU TRADE)`;
@@ -203,7 +236,7 @@ function renderStatus(data) {
       guidanceEl.textContent = d.human_guidance;
     }
 
-    const b = d.brackets || {};
+    const b = d.brackets || (activeAdv ? activeAdv.brackets : {});
     if (entryEl) entryEl.textContent = b.entry_price ? `₹${b.entry_price.toFixed(2)}` : "--";
     if (targetEl) targetEl.textContent = b.target ? `₹${b.target.toFixed(2)}` : "--";
     if (slEl) slEl.textContent = b.stop_loss ? `₹${b.stop_loss.toFixed(2)}` : "--";
@@ -349,12 +382,15 @@ function renderStatus(data) {
 }
 
 // --- Synchronized Status Badges Helper ---
+let lastTunnelOnlineTimestamp = 0;
+
 function setTunnelStatusBadges(isOnline, detailText = "") {
   const sourceBadge = document.getElementById("ai-source-badge");
   const settingsBadge = document.getElementById("local-ai-status-badge");
   const teleStatus = document.getElementById("tele-ai-status");
 
   if (isOnline) {
+    lastTunnelOnlineTimestamp = Date.now();
     if (sourceBadge) {
       sourceBadge.textContent = "● Laptop AI Tunnel Online";
       sourceBadge.style.color = "#10b981";
@@ -372,6 +408,10 @@ function setTunnelStatusBadges(isOnline, detailText = "") {
       teleStatus.className = "text-emerald";
     }
   } else {
+    // If recently verified online within the last 20 seconds, suppress transient offline flicker
+    if (Date.now() - lastTunnelOnlineTimestamp < 20000 && lastTunnelOnlineTimestamp > 0) {
+      return;
+    }
     if (sourceBadge) {
       sourceBadge.textContent = "○ Laptop Tunnel Offline";
       sourceBadge.style.color = "#f59e0b";
@@ -473,14 +513,21 @@ function renderAIPrediction(pred, source = "localhost") {
     source === "localhost" ? "Via Cloud Tunnel" : "Tunnel Inactive / Cloud Fallback"
   );
 
-  // 2. Signal Badge
+  // 2. Signal Badge (Locks if an active advisory is open to prevent confusing flickers)
   const badge = document.getElementById("signal-badge");
   if (badge) {
-    badge.textContent = pred.signal || "HOLD";
-    badge.className = "signal-badge";
-    if (pred.signal === "BUY") badge.classList.add("badge-buy");
-    else if (pred.signal === "SELL") badge.classList.add("badge-sell");
-    else badge.classList.add("badge-wait");
+    if (currentActiveAdvisory) {
+      badge.textContent = `${currentActiveAdvisory.side} (ACTIVE)`;
+      badge.className = "signal-badge";
+      if (currentActiveAdvisory.side === "BUY") badge.classList.add("badge-buy");
+      else if (currentActiveAdvisory.side === "SELL") badge.classList.add("badge-sell");
+    } else {
+      badge.textContent = pred.signal || "HOLD";
+      badge.className = "signal-badge";
+      if (pred.signal === "BUY") badge.classList.add("badge-buy");
+      else if (pred.signal === "SELL") badge.classList.add("badge-sell");
+      else badge.classList.add("badge-wait");
+    }
   }
 
   // 3. Confidence Bar & Value
@@ -1121,6 +1168,107 @@ async function fetchLogs() {
     tbody.innerHTML = rows || `<tr><td colspan="7" class="text-center">No log entries found.</td></tr>`;
   } catch (err) {
     console.error("Logs fetch failed:", err);
+  }
+}
+
+// --- Fetch & Render 1:3 Trade Advisory History ---
+async function fetchAdvisories() {
+  try {
+    const res = await fetch(`${getApiBase()}/api/advisories/history?limit=100`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    renderAdvisories(data);
+  } catch (err) {
+    console.warn("Advisories fetch failed:", err);
+  }
+}
+
+function renderAdvisories(data) {
+  const summary = data.summary || {};
+  const winrateEl = document.getElementById("adv-summary-winrate");
+  const pnlEl = document.getElementById("adv-summary-pnl");
+  const totalEl = document.getElementById("stat-adv-total");
+  const tgtsEl = document.getElementById("stat-adv-targets");
+  const slsEl = document.getElementById("stat-adv-sls");
+  const pfEl = document.getElementById("stat-adv-pf");
+
+  if (winrateEl) winrateEl.textContent = `Win Rate: ${summary.win_rate_pct != null ? summary.win_rate_pct : 0}%`;
+  if (pnlEl) {
+    const net = summary.total_net_pnl || 0;
+    const sign = net >= 0 ? "+" : "";
+    pnlEl.textContent = `Net P&L: ${sign}₹${net.toLocaleString("en-IN")}`;
+    pnlEl.style.color = net >= 0 ? "#34d399" : "#f87171";
+  }
+  if (totalEl) totalEl.textContent = summary.total_advisories || 0;
+  if (tgtsEl) tgtsEl.textContent = summary.target_hits || 0;
+  if (slsEl) slsEl.textContent = summary.stop_loss_hits || 0;
+  if (pfEl) pfEl.textContent = summary.profit_factor || "0.00";
+
+  const tbody = document.getElementById("advisory-history-tbody");
+  if (!tbody) return;
+
+  const advs = data.advisories || [];
+  if (advs.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted">No trade advisories recorded yet. System is scanning for 1:3 setups.</td></tr>`;
+    return;
+  }
+
+  const rows = advs.map(a => {
+    const isBuy = a.side === "BUY";
+    const sideBadge = `<span class="badge" style="background:${isBuy ? '#064e3b' : '#4c0519'}; color:${isBuy ? '#34d399' : '#f87171'}; border:1px solid ${isBuy ? '#059669' : '#e11d48'}; font-weight:bold;">${a.side}</span>`;
+
+    let statusBadge = "";
+    if (a.status === "TARGET_HIT") {
+      statusBadge = `<span class="badge" style="background:#064e3b; color:#34d399; border:1px solid #059669;">🎯 TARGET (+3R)</span>`;
+    } else if (a.status === "SL_HIT") {
+      statusBadge = `<span class="badge" style="background:#4c0519; color:#f87171; border:1px solid #e11d48;">🛑 STOP-LOSS (-1R)</span>`;
+    } else if (a.status === "ACTIVE") {
+      statusBadge = `<span class="badge badge-pulse" style="background:#082f49; color:#38bdf8; border:1px solid #0284c7;">🔵 ACTIVE</span>`;
+    } else if (a.status === "DAY_END_CLOSE") {
+      statusBadge = `<span class="badge" style="background:#1e1b4b; color:#818cf8; border:1px solid #4f46e5;">⏱️ DAY CLOSE</span>`;
+    } else {
+      statusBadge = `<span class="badge" style="background:#334155; color:#94a3b8;">${a.status || 'CLOSED'}</span>`;
+    }
+
+    const pnl = a.realized_pnl || 0;
+    const pnlSign = pnl >= 0 ? "+" : "";
+    const pnlColor = pnl > 0 ? "text-emerald font-bold" : (pnl < 0 ? "text-rose font-bold" : "text-muted");
+    const pnlText = a.status === "ACTIVE" ? `<span class="text-cyan">Pending</span>` : `<span class="${pnlColor}">${pnlSign}₹${pnl.toLocaleString('en-IN')}</span>`;
+
+    const timeStr = a.logged_at ? a.logged_at.slice(0, 19).replace("T", " ") : (a.candle_timestamp || "--");
+
+    return `
+      <tr>
+        <td class="text-muted">${timeStr}</td>
+        <td>${sideBadge}</td>
+        <td class="font-bold">₹${a.entry_price != null ? a.entry_price.toFixed(2) : '--'}</td>
+        <td class="text-rose font-bold">₹${a.stop_loss != null ? a.stop_loss.toFixed(2) : '--'}</td>
+        <td class="text-emerald font-bold">₹${a.target != null ? a.target.toFixed(2) : '--'}</td>
+        <td>${statusBadge}</td>
+        <td>${a.exit_price != null ? '₹' + a.exit_price.toFixed(2) : '--'}</td>
+        <td>${pnlText}</td>
+      </tr>
+    `;
+  }).join("");
+
+  tbody.innerHTML = rows;
+}
+
+async function closeActiveAdvisory() {
+  if (!confirm("Are you sure you want to manually square off / dismiss the active advisory?")) return;
+  try {
+    const res = await fetch(`${getApiBase()}/api/advisories/close`, {
+      method: "POST",
+      headers: getAuthHeaders()
+    });
+    if (res.ok) {
+      fetchStatus();
+      fetchAdvisories();
+    }
+  } catch (err) {
+    console.error("Failed to close advisory:", err);
   }
 }
 

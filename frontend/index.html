@@ -86,7 +86,11 @@
             <span style="font-size: 1.25rem;">📢</span>
             <h3 style="color: #38bdf8; font-size: 1.05rem; letter-spacing: 0.05em;">AI TRADING COPILOT: WHAT YOU SHOULD DO NOW</h3>
           </div>
-          <span class="status-pill status-running font-mono" id="copilot-mode-tag">MODE: COPILOT (YOU TRADE)</span>
+          <div class="flex-row gap-2 align-center flex-wrap">
+            <span class="status-pill status-idle font-mono" id="copilot-lock-status">STATUS: SCANNING</span>
+            <span class="status-pill status-running font-mono" id="copilot-mode-tag">MODE: COPILOT (YOU TRADE)</span>
+            <button id="btn-close-advisory" class="btn btn-danger btn-sm" style="display: none; padding: 2px 8px; font-size: 0.75rem;" title="Manually square off or dismiss the active advisory">✕ Square Off Trade</button>
+          </div>
         </div>
         <div style="padding: 16px;">
           <div class="flex-row justify-between align-center flex-wrap gap-2 mb-2">
@@ -268,6 +272,50 @@
               <canvas id="accuracy-chart" height="150"></canvas>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 1:3 Trade Advisory History & Performance Card -->
+      <div class="card mt-4" id="advisory-history-card">
+        <div class="card-header">
+          <div class="flex-row gap-2 align-center">
+            <span style="font-size: 1.25rem;">🎯</span>
+            <h3 style="color: #38bdf8; font-size: 1.05rem; letter-spacing: 0.05em;">STRICT 1:3 RISK-REWARD TRADE ADVISORY HISTORY</h3>
+          </div>
+          <div class="flex-row gap-2 align-center flex-wrap">
+            <span class="badge font-mono" id="adv-summary-winrate" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4);">Win Rate: --%</span>
+            <span class="badge font-mono" id="adv-summary-pnl" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4);">Net P&L: ₹--.--</span>
+            <button id="btn-refresh-advisories" class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 0.75rem;">🔄 Refresh</button>
+          </div>
+        </div>
+
+        <!-- Summary Metric Pills -->
+        <div class="grid-4col font-mono text-xs pt-3 pb-3 mb-2" style="border-bottom: 1px solid rgba(255,255,255,0.08);">
+          <div><span class="label">TOTAL 1:3 SIGNALS:</span> <span class="val font-bold text-white" id="stat-adv-total">0</span></div>
+          <div><span class="label">TARGET HITS (🎯 +3R):</span> <span class="val font-bold text-emerald" id="stat-adv-targets">0</span></div>
+          <div><span class="label">STOP-LOSS HITS (🛑 -1R):</span> <span class="val font-bold text-rose" id="stat-adv-sls">0</span></div>
+          <div><span class="label">PROFIT FACTOR:</span> <span class="val font-bold text-cyan" id="stat-adv-pf">0.00</span></div>
+        </div>
+
+        <!-- Advisory Table -->
+        <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
+          <table class="table font-mono text-xs" id="advisory-history-table">
+            <thead>
+              <tr>
+                <th>Time (IST)</th>
+                <th>Side</th>
+                <th>Entry Price</th>
+                <th>Stop-Loss (1R)</th>
+                <th>Target (3R)</th>
+                <th>Status</th>
+                <th>Exit Price</th>
+                <th>Net P&L (₹)</th>
+              </tr>
+            </thead>
+            <tbody id="advisory-history-tbody">
+              <tr><td colspan="8" class="text-center text-muted">No trade advisories recorded yet. System is scanning for 1:3 setups.</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </section>

@@ -10,7 +10,12 @@ from core.strategy import evaluate_signal
 from core.risk_manager import calculate_trade_brackets, check_safety_gate
 from data.fetcher import fetch_historical_candles, fetch_latest_quote, DataUnavailableError
 from data.kotak_client import KotakNeoAdapter
-from execution.logger import record_analysis_log, record_advisory_log
+from execution.logger import (
+    record_analysis_log,
+    record_advisory_log,
+    get_active_advisory,
+    update_advisory_status,
+)
 
 
 def parse_timeframe_minutes(tf: str) -> int:
@@ -39,11 +44,59 @@ class ExecutionEngine:
         self.last_decision = None
         self.last_analysis_time = None
         self.last_quote = None
+        self.active_advisory = get_active_advisory()
 
         # Check persistent emergency stop flag on startup
         if self._get_lock_path().exists() or self.config.emergency_stop:
             self.state = "EMERGENCY_STOPPED"
             update_settings({"emergency_stop": True})
+
+    def close_active_advisory(self, reason: str = "MANUAL_CLOSE") -> Dict[str, Any]:
+        """Manually closes or dismisses the currently active advisory."""
+        if not self.active_advisory:
+            return {"success": False, "message": "No active advisory to close."}
+
+        tz = zoneinfo.ZoneInfo(self.config.timezone)
+        now = datetime.now(tz)
+        quote = fetch_latest_quote(symbol=self.config.symbol, config=self.config, kotak_adapter=self.kotak)
+        curr_price = float(quote.get("ltp") or self.active_advisory.get("entry_price", 0.0))
+        side = self.active_advisory["side"]
+        entry = float(self.active_advisory["entry_price"])
+        qty = int(self.active_advisory["quantity"])
+
+        pnl = (curr_price - entry) * qty if side == "BUY" else (entry - curr_price) * qty
+        pts = round(curr_price - entry if side == "BUY" else entry - curr_price, 2)
+
+        update_advisory_status(
+            self.active_advisory["id"],
+            new_status="CLOSED",
+            exit_price=curr_price,
+            exit_time=now.isoformat(),
+            realized_pnl=pnl,
+            realized_points=pts
+        )
+        closed_adv = self.active_advisory
+        self.active_advisory = None
+
+        scrip = self.kotak.get_trading_symbol(self.config.symbol)
+        self.last_decision = {
+            "timestamp": now.isoformat(),
+            "symbol": self.config.symbol,
+            "mode": self.config.agent_mode,
+            "signal": "WAIT",
+            "action": f"ADVISORY CLOSED ({reason})",
+            "directive": f"ADVISORY CLOSED: {side} {qty} {scrip} closed at ₹{curr_price:.2f}. Realized P&L: {'+' if pnl >= 0 else ''}₹{pnl:,.2f}.",
+            "human_guidance": f"Active trade was closed ({reason}). Standing by for the next high-probability setup.",
+            "reason": f"Active advisory manually closed: {reason}",
+            "safety": {"allowed": True, "reason": "Trade closed manually", "status": "READY"},
+            "quote": quote,
+            "indicators": None,
+            "brackets": None,
+            "data_source": quote.get("source", "UNKNOWN"),
+            "session_state": "ACTIVE",
+            "real_orders_enabled": False,
+        }
+        return {"success": True, "message": "Active advisory closed successfully.", "closed_advisory": closed_adv}
 
     def _get_lock_path(self) -> Path:
         lock_path = Path(self.config.emergency_stop_file)
@@ -149,6 +202,167 @@ class ExecutionEngine:
                 "state": self.state,
                 "decision": self.last_decision
             }
+
+        # 0.1 ACTIVE TRADE STATE LATCH: Check if a trade is already active
+        curr_price = float(quote.get("ltp") or 0.0)
+        if self.active_advisory is not None:
+            adv = self.active_advisory
+            side = adv["side"]
+            entry = float(adv["entry_price"])
+            target = float(adv["target"])
+            stop_loss = float(adv["stop_loss"])
+            qty = int(adv["quantity"])
+            scrip = self.kotak.get_trading_symbol(self.config.symbol)
+            p = curr_price if curr_price > 0 else entry
+
+            # Check A: Target Hit
+            target_hit = (p >= target) if side == "BUY" else (p <= target)
+            if target_hit:
+                pnl = round((target - entry) * qty if side == "BUY" else (entry - target) * qty, 2)
+                pts = round(abs(target - entry), 2)
+                update_advisory_status(
+                    adv["id"],
+                    new_status="TARGET_HIT",
+                    exit_price=target,
+                    exit_time=now.isoformat(),
+                    realized_pnl=pnl,
+                    realized_points=pts
+                )
+                self.last_decision = {
+                    "timestamp": now.isoformat(),
+                    "candle_timestamp": adv.get("candle_timestamp", now.isoformat()),
+                    "symbol": self.config.symbol,
+                    "mode": self.config.agent_mode,
+                    "signal": "WAIT",
+                    "action": f"TARGET REACHED (+3R): {side} {qty} {scrip}",
+                    "directive": f"TARGET HIT 🎯! Profit Booked: +₹{pnl:,.2f} (+3R) on {side} {qty} {scrip} at ₹{target:.2f}.",
+                    "human_guidance": f"TARGET REACHED at ₹{target:.2f}! Open Kotak Neo app and book profit of +₹{pnl:,.2f}.",
+                    "reason": f"Target price ₹{target:.2f} achieved successfully with strict 1:3 R:R.",
+                    "safety": {"allowed": True, "reason": "Target reached", "status": "RESOLVED"},
+                    "quote": quote,
+                    "indicators": None,
+                    "brackets": adv.get("brackets"),
+                    "data_source": quote.get("source", "UNKNOWN"),
+                    "session_state": "ACTIVE",
+                    "real_orders_enabled": False,
+                    "active_advisory": None,
+                }
+                self.active_advisory = None
+                return {"success": True, "decision": self.last_decision}
+
+            # Check B: Stop Loss Hit
+            sl_hit = (p <= stop_loss) if side == "BUY" else (p >= stop_loss)
+            if sl_hit:
+                pnl = round(-abs((entry - stop_loss) * qty), 2)
+                pts = round(-abs(entry - stop_loss), 2)
+                update_advisory_status(
+                    adv["id"],
+                    new_status="SL_HIT",
+                    exit_price=stop_loss,
+                    exit_time=now.isoformat(),
+                    realized_pnl=pnl,
+                    realized_points=pts
+                )
+                self.last_decision = {
+                    "timestamp": now.isoformat(),
+                    "candle_timestamp": adv.get("candle_timestamp", now.isoformat()),
+                    "symbol": self.config.symbol,
+                    "mode": self.config.agent_mode,
+                    "signal": "WAIT",
+                    "action": f"STOP-LOSS HIT (-1R): {side} {qty} {scrip}",
+                    "directive": f"STOP LOSS HIT 🛑! Loss: -₹{abs(pnl):,.2f} (-1R) on {side} {qty} {scrip} at ₹{stop_loss:.2f}.",
+                    "human_guidance": f"Stop-Loss touched at ₹{stop_loss:.2f}. Exit {side} trade on Kotak Neo app to protect capital.",
+                    "reason": f"Stop-Loss level ₹{stop_loss:.2f} touched. Risk strictly contained at 1R.",
+                    "safety": {"allowed": True, "reason": "Stop Loss touched", "status": "RESOLVED"},
+                    "quote": quote,
+                    "indicators": None,
+                    "brackets": adv.get("brackets"),
+                    "data_source": quote.get("source", "UNKNOWN"),
+                    "session_state": "ACTIVE",
+                    "real_orders_enabled": False,
+                    "active_advisory": None,
+                }
+                self.active_advisory = None
+                return {"success": True, "decision": self.last_decision}
+
+            # Check C: Day End Close / Market Wind-Down (15:15 IST)
+            if (now.hour == 15 and now.minute >= 15) or (now.hour > 15):
+                pnl = round((p - entry) * qty if side == "BUY" else (entry - p) * qty, 2)
+                pts = round(p - entry if side == "BUY" else entry - p, 2)
+                update_advisory_status(
+                    adv["id"],
+                    new_status="DAY_END_CLOSE",
+                    exit_price=p,
+                    exit_time=now.isoformat(),
+                    realized_pnl=pnl,
+                    realized_points=pts
+                )
+                self.last_decision = {
+                    "timestamp": now.isoformat(),
+                    "candle_timestamp": adv.get("candle_timestamp", now.isoformat()),
+                    "symbol": self.config.symbol,
+                    "mode": self.config.agent_mode,
+                    "signal": "WAIT",
+                    "action": f"DAY CLOSE EXIT: {side} {qty} {scrip}",
+                    "directive": f"DAY CLOSE EXIT ⏱️: Intraday position squared off at ₹{p:.2f}. Net P&L: {'+' if pnl >= 0 else ''}₹{pnl:,.2f}.",
+                    "human_guidance": f"Market closing session. Close intraday position around ₹{p:.2f} on Kotak Neo app.",
+                    "reason": "Intraday session wind-down: square-off before market close.",
+                    "safety": {"allowed": False, "reason": "Session closing", "status": "WIND_DOWN"},
+                    "quote": quote,
+                    "indicators": None,
+                    "brackets": adv.get("brackets"),
+                    "data_source": quote.get("source", "UNKNOWN"),
+                    "session_state": "WIND_DOWN",
+                    "real_orders_enabled": False,
+                    "active_advisory": None,
+                }
+                self.active_advisory = None
+                return {"success": True, "decision": self.last_decision}
+
+            # Check D: Trade Remains Active & Locked (NO FLICKERING!)
+            unrealized_pts = round(p - entry if side == "BUY" else entry - p, 2)
+            unrealized_pnl = round(unrealized_pts * qty, 2)
+            dist_tgt = round(abs(target - p), 2)
+            dist_sl = round(abs(p - stop_loss), 2)
+            pnl_str = f"+₹{unrealized_pnl:,.2f}" if unrealized_pnl >= 0 else f"-₹{abs(unrealized_pnl):,.2f}"
+
+            directive = (
+                f"ACTIVE {side} TRADE LOCKED: Entry ₹{entry:.2f} | Current ₹{p:.2f} ({pnl_str}) | "
+                f"TARGET: ₹{target:.2f} | STOP LOSS: ₹{stop_loss:.2f} | STRICT 1:3 RRR"
+            )
+            human_guidance = (
+                f"Trade is ACTIVE on Kotak Neo: {side} {qty:,} shares @ ₹{entry:.2f}. "
+                f"Current P&L: {pnl_str} ({dist_tgt:.2f} pts to Target, {dist_sl:.2f} pts buffer to SL). "
+                f"Do not panic or exit early — hold steady until Target ₹{target:.2f} or SL ₹{stop_loss:.2f} is reached."
+            )
+
+            self.last_decision = {
+                "timestamp": now.isoformat(),
+                "candle_timestamp": adv.get("candle_timestamp", now.isoformat()),
+                "symbol": self.config.symbol,
+                "mode": self.config.agent_mode,
+                "signal": side,
+                "action": f"ACTIVE {side} TRADE (LOCKED 1:3 RRR)",
+                "directive": directive,
+                "human_guidance": human_guidance,
+                "reason": f"Active {side} trade in progress. Entry: ₹{entry:.2f}, Target: ₹{target:.2f}, SL: ₹{stop_loss:.2f}.",
+                "safety": {"allowed": True, "reason": "Trade in progress", "status": "ACTIVE_TRADE"},
+                "quote": quote,
+                "indicators": None,
+                "brackets": adv.get("brackets"),
+                "data_source": quote.get("source", "UNKNOWN"),
+                "session_state": "ACTIVE",
+                "real_orders_enabled": False,
+                "active_advisory": adv,
+                "live_tracking": {
+                    "current_price": p,
+                    "unrealized_points": unrealized_pts,
+                    "unrealized_pnl": unrealized_pnl,
+                    "distance_to_target": dist_tgt,
+                    "distance_to_sl": dist_sl,
+                }
+            }
+            return {"success": True, "decision": self.last_decision}
 
         # 1. Fetch candles
         try:
@@ -278,8 +492,8 @@ class ExecutionEngine:
                 )
                 action = f"GUIDER ADVISORY: {signal} {qty} {scrip} (1:3 R:R)"
 
-                # Record issued advisory to advisories.jsonl
-                record_advisory_log(
+                # Record issued advisory to advisories.jsonl and LOCK AS ACTIVE
+                adv_record = record_advisory_log(
                     candle_timestamp=latest_candle_start.isoformat(),
                     data_source=data_source,
                     symbol=self.config.symbol,
@@ -291,8 +505,12 @@ class ExecutionEngine:
                     directive=directive,
                     reason=reason,
                     session_state=session_state,
-                    config=self.config
+                    config=self.config,
+                    risk_reward="1:3.00",
+                    status="ACTIVE",
+                    brackets=brackets
                 )
+                self.active_advisory = adv_record
         else:
             brackets = None
             directive = f"STATUS: WAIT / HOLD. No active trade advisory for {scrip}."
@@ -330,6 +548,7 @@ class ExecutionEngine:
             "data_source": data_source,
             "session_state": session_state,
             "real_orders_enabled": False,
+            "active_advisory": self.active_advisory,
         }
 
         return {
@@ -355,6 +574,7 @@ class ExecutionEngine:
             "last_analysis_time": self.last_analysis_time,
             "last_quote": self.last_quote,
             "last_decision": self.last_decision,
+            "active_advisory": self.active_advisory,
             "kotak_status": self.kotak.status(),
         }
 

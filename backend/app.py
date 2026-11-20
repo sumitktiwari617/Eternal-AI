@@ -23,7 +23,13 @@ from backend.schemas import (
     TunnelRegistrationRequest,
 )
 from execution.engine import engine
-from execution.logger import get_recent_logs, clear_logs
+from execution.logger import (
+    get_recent_logs,
+    clear_logs,
+    get_advisories,
+    get_active_advisory,
+    get_advisory_performance_summary,
+)
 from core.backtester import run_backtest
 from core.rsi_engine import run_pure_rsi_backtest
 from core.indicators import calculate_indicators
@@ -501,6 +507,42 @@ def clear_paper_logs(request: Request):
     return {"success": success, "message": "Log file cleared."}
 
 
+@app.get("/api/advisories/active")
+def get_current_active_advisory():
+    """Returns currently locked active trade advisory or null if scanning."""
+    adv = get_active_advisory()
+    engine.active_advisory = adv
+    return {
+        "has_active_advisory": adv is not None,
+        "advisory": adv,
+    }
+
+
+@app.get("/api/advisories/history")
+def get_advisory_history(request: Request, limit: int = 100):
+    """Returns complete history of 1:3 trade suggestions and lifetime win-rate / PnL statistics."""
+    logs_limiter.check(request)
+    capped_limit = min(max(1, limit), 500)
+    history = get_advisories(limit=capped_limit)
+    summary = get_advisory_performance_summary()
+    active_adv = get_active_advisory()
+    engine.active_advisory = active_adv
+    return {
+        "count": len(history),
+        "limit": capped_limit,
+        "summary": summary,
+        "advisories": history,
+        "active_advisory": active_adv,
+    }
+
+
+@app.post("/api/advisories/close")
+def close_active_trade_advisory(request: Request):
+    """Manually closes the active locked advisory and logs realized outcome."""
+    verify_admin_key(request)
+    return engine.close_active_advisory(reason="MANUAL_CLOSE_BY_USER")
+
+
 @app.post("/api/kotak/login")
 def login_kotak(req: KotakLoginRequest, request: Request):
     """Logs into Kotak Neo API using TOTP."""
@@ -574,7 +616,7 @@ def get_ai_tunnel_status():
             resp = requests.get(
                 f"{settings.ai_model_service_url.rstrip('/')}/health",
                 headers=get_ai_service_headers(),
-                timeout=4.0
+                timeout=6.0
             )
             tunnel_alive = (resp.status_code == 200)
         except Exception:
@@ -606,7 +648,7 @@ def get_ai_prediction(request: Request):
                 f"{settings.ai_model_service_url.rstrip('/')}/api/ai/predict",
                 params={"symbol": settings.symbol, "timeframe": settings.timeframe},
                 headers=get_ai_service_headers(),
-                timeout=3.0
+                timeout=8.0
             )
             if resp.status_code == 200:
                 res_data = resp.json()

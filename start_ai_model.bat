@@ -11,15 +11,24 @@ echo =================================================================
 echo.
 
 :: 1. Detect Python
-if exist "C:\Python314\python.exe" (
-    set "PY_CMD=C:\Python314\python.exe"
-) else if exist "C:\Python312\python.exe" (
-    set "PY_CMD=C:\Python312\python.exe"
-) else if exist "C:\Python311\python.exe" (
-    set "PY_CMD=C:\Python311\python.exe"
-) else (
-    set "PY_CMD=python"
+set "PY_CMD="
+if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+if not defined PY_CMD if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+if not defined PY_CMD if exist "%LOCALAPPDATA%\Programs\Python\Python314\python.exe" set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
+if not defined PY_CMD if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+if not defined PY_CMD if exist "C:\Python314\python.exe" set "PY_CMD=C:\Python314\python.exe"
+if not defined PY_CMD if exist "C:\Python313\python.exe" set "PY_CMD=C:\Python313\python.exe"
+if not defined PY_CMD if exist "C:\Python312\python.exe" set "PY_CMD=C:\Python312\python.exe"
+if not defined PY_CMD if exist "C:\Python311\python.exe" set "PY_CMD=C:\Python311\python.exe"
+if not defined PY_CMD (
+    py -3 -c "import sys" >nul 2>nul
+    if not errorlevel 1 set "PY_CMD=py -3"
 )
+if not defined PY_CMD (
+    py -c "import sys" >nul 2>nul
+    if not errorlevel 1 set "PY_CMD=py"
+)
+if not defined PY_CMD set "PY_CMD=python"
 
 :: 2. Show Active Environment
 echo [1/3] Environment Configuration:
@@ -31,7 +40,6 @@ echo       - Localhost Port:    8001
 echo.
 
 :: 3. Check Initial Training
-if not defined PY_CMD if exist "C:\Python314\python.exe" (set "PY_CMD=C:\Python314\python.exe") else (set "PY_CMD=python")
 echo [2/3] Verifying Historical Training and Model Weights...
 %PY_CMD% -c "from ai.auto_learner import auto_learner; res = auto_learner.ensure_initial_training(); acc = res.get('accuracy'); hacc = res.get('high_conf_accuracy'); print('       - AI Status: Ready on Localhost | Signal Win Rate: ' + (str(acc) + '%% (Balanced OOS)' if acc is not None else 'N/A') + ' | High-Conf Conviction: ' + (str(hacc) + '%%' if hacc is not None else 'N/A'))"
 if %ERRORLEVEL% NEQ 0 (
@@ -42,7 +50,6 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 
 :: 4. Start Localhost AI Model Microservice
-if not defined PY_CMD if exist "C:\Python314\python.exe" (set "PY_CMD=C:\Python314\python.exe") else (set "PY_CMD=python")
 echo [3/3] Launching Local AI Model Server on Port 8001...
 echo =================================================================
 echo   * LOCAL AI MODEL IS NOW ONLINE AND READY!
