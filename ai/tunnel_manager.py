@@ -319,7 +319,7 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
         except Exception:
             pass
 
-    # 1. Try localhost.run (Primary)
+    # 1. Try localhost.run (Primary) — wait up to 45s since localhost.run takes 20-30s to reply
     try:
         logger.info(f"Opening Antivirus-Safe Built-in OpenSSH Tunnel to http://127.0.0.1:{port} (via localhost.run)...")
         proc = subprocess.Popen(
@@ -330,21 +330,31 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
                 "-o", "ServerAliveInterval=30",
                 "-o", "ServerAliveCountMax=3",
                 "-o", "ExitOnForwardFailure=yes",
+                "-o", "ConnectTimeout=20",
                 "-R", f"80:127.0.0.1:{port}",
                 "nokey@localhost.run"
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True
+            text=True,
+            bufsize=1,
         )
         _ssh_process = proc
 
+        # localhost.run typically takes 20-30 seconds to output the URL — use 45s timeout
         start = time.time()
-        while time.time() - start < 15:
-            line = proc.stdout.readline() if proc.stdout else ""
+        while time.time() - start < 45:
+            if proc.stdout and proc.stdout.readable():
+                line = proc.stdout.readline()
+            else:
+                time.sleep(0.3)
+                continue
             if line:
+                line = line.strip()
+                logger.debug(f"[localhost.run] {line}")
+                # Match any https URL containing lhr.life, app.lhr.life, lhrtunnel.com, etc.
                 match = re.search(r"https://[a-zA-Z0-9\.\-_]+\.(?:lhr\.life|lhr\.pro|lhrtunnel\.com|localhost\.run|app\.lhr\.life)", line)
-                if not match and "https://" in line and (".life" in line or ".pro" in line or "localhost" in line):
+                if not match and "https://" in line and (".life" in line or ".pro" in line or "lhr" in line or "localhost" in line):
                     match = re.search(r"https://[^\s\"']+", line)
                 if match:
                     url = match.group(0).rstrip("/.,")
@@ -354,10 +364,12 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
             if proc.poll() is not None:
                 logger.warning(f"localhost.run OpenSSH tunnel process exited (code {proc.returncode})")
                 break
+            if not line:
+                time.sleep(0.1)
     except Exception as e:
         logger.warning(f"localhost.run OpenSSH tunnel error: {e}")
 
-    # 2. Try serveo.net (Secondary OpenSSH fallback)
+    # 2. Try serveo.net (Secondary OpenSSH fallback) — wait up to 30s
     try:
         logger.info(f"Attempting OpenSSH fallback tunnel via serveo.net...")
         proc = subprocess.Popen(
@@ -368,20 +380,30 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
                 "-o", "ServerAliveInterval=30",
                 "-o", "ServerAliveCountMax=3",
                 "-o", "ExitOnForwardFailure=yes",
+                "-o", "ConnectTimeout=20",
                 "-R", f"80:127.0.0.1:{port}",
                 "serveo.net"
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True
+            text=True,
+            bufsize=1,
         )
         _ssh_process = proc
 
         start = time.time()
-        while time.time() - start < 15:
-            line = proc.stdout.readline() if proc.stdout else ""
+        while time.time() - start < 30:
+            if proc.stdout and proc.stdout.readable():
+                line = proc.stdout.readline()
+            else:
+                time.sleep(0.3)
+                continue
             if line:
+                line = line.strip()
+                logger.debug(f"[serveo] {line}")
                 match = re.search(r"https://[a-zA-Z0-9.-]+\.serveo(?:usercontent)?\.com", line)
+                if not match and "https://" in line and "serveo" in line:
+                    match = re.search(r"https://[^\s\"']+", line)
                 if match:
                     url = match.group(0).rstrip("/.,")
                     logger.info(f"SUCCESS: Serveo OpenSSH Tunnel active: {url}")
@@ -390,6 +412,8 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
             if proc.poll() is not None:
                 logger.warning(f"Serveo OpenSSH tunnel process exited (code {proc.returncode})")
                 break
+            if not line:
+                time.sleep(0.1)
     except Exception as e:
         logger.warning(f"Serveo OpenSSH tunnel error: {e}")
 
