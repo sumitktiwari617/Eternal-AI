@@ -4,6 +4,13 @@ cd /d "%~dp0"
 title Push ETERNAL AI to GitHub (sumitktiwari617/Eternal-AI)
 color 0B
 
+:: Ensure Git is in PATH
+if exist "%LOCALAPPDATA%\Programs\Git\cmd\git.exe" (
+    set "PATH=%LOCALAPPDATA%\Programs\Git\cmd;%PATH%"
+) else if exist "C:\Program Files\Git\cmd\git.exe" (
+    set "PATH=C:\Program Files\Git\cmd;%PATH%"
+)
+
 echo =================================================================
 echo         PUSH ETERNAL AI TO GITHUB
 echo         Target: https://github.com/sumitktiwari617/Eternal-AI.git
