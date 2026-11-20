@@ -295,6 +295,71 @@ def start_cloudflare_tunnel(port: int = 8001) -> Optional[str]:
     return None
 
 
+import queue as _queue
+
+
+def _ssh_read_url(proc, url_patterns, timeout_sec: float) -> Optional[str]:
+    """
+    Reads subprocess output lines via a background thread (non-blocking).
+    Returns the first HTTPS URL that matches any of the given domain patterns,
+    or None if timeout_sec elapses without a match.
+    This avoids readline() blocking past the timeout.
+    """
+    line_q: _queue.Queue = _queue.Queue()
+
+    def _reader(pipe, q):
+        try:
+            for raw_line in pipe:
+                q.put(raw_line)
+        except Exception:
+            pass
+        finally:
+            q.put(None)  # EOF sentinel
+
+    reader_thread = threading.Thread(target=_reader, args=(proc.stdout, line_q), daemon=True)
+    reader_thread.start()
+
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        remaining = max(0.0, deadline - time.time())
+        try:
+            raw = line_q.get(timeout=min(remaining + 0.1, 1.0))
+        except _queue.Empty:
+            if proc.poll() is not None:
+                break
+            continue
+        if raw is None:  # EOF
+            break
+        line = raw.strip()
+        if not line:
+            continue
+        logger.debug(f"[ssh-tunnel] {line}")
+
+        # Primary: match known lhr.life / serveo / cloudflare domains exactly
+        for pattern in url_patterns:
+            m = re.search(pattern, line)
+            if m:
+                url = m.group(0).rstrip("/.,")
+                # Reject bare domain-only strings (must start with https://)
+                if url.startswith("https://") and len(url) > 12:
+                    return url
+
+        # Secondary: catch-all — only if line contains "tunneled" or "forwarding" keyword
+        # (avoids matching docs/banner URLs from the welcome text)
+        if ("tunnel" in line.lower() or "forward" in line.lower()) and "https://" in line:
+            m = re.search(r"https://[^\s\"',]+", line)
+            if m:
+                url = m.group(0).rstrip("/.,")
+                if url.startswith("https://") and len(url) > 12:
+                    return url
+
+        if proc.poll() is not None:
+            logger.warning(f"SSH tunnel process exited (code {proc.returncode})")
+            break
+
+    return None
+
+
 def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
     """
     Starts an accountless, zero-download public HTTPS tunnel using Windows built-in OpenSSH.
@@ -319,7 +384,7 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
         except Exception:
             pass
 
-    # 1. Try localhost.run (Primary) — wait up to 45s since localhost.run takes 20-30s to reply
+    # 1. Try localhost.run (Primary) — wait up to 45s (localhost.run takes 20-30s to output URL)
     try:
         logger.info(f"Opening Antivirus-Safe Built-in OpenSSH Tunnel to http://127.0.0.1:{port} (via localhost.run)...")
         proc = subprocess.Popen(
@@ -341,31 +406,23 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
         )
         _ssh_process = proc
 
-        # localhost.run typically takes 20-30 seconds to output the URL — use 45s timeout
-        start = time.time()
-        while time.time() - start < 45:
-            if proc.stdout and proc.stdout.readable():
-                line = proc.stdout.readline()
-            else:
-                time.sleep(0.3)
-                continue
-            if line:
-                line = line.strip()
-                logger.debug(f"[localhost.run] {line}")
-                # Match any https URL containing lhr.life, app.lhr.life, lhrtunnel.com, etc.
-                match = re.search(r"https://[a-zA-Z0-9\.\-_]+\.(?:lhr\.life|lhr\.pro|lhrtunnel\.com|localhost\.run|app\.lhr\.life)", line)
-                if not match and "https://" in line and (".life" in line or ".pro" in line or "lhr" in line or "localhost" in line):
-                    match = re.search(r"https://[^\s\"']+", line)
-                if match:
-                    url = match.group(0).rstrip("/.,")
-                    logger.info(f"SUCCESS: Antivirus-Safe OpenSSH Tunnel active: {url}")
-                    threading.Thread(target=_drain_stdout, args=(proc.stdout,), daemon=True).start()
-                    return url
-            if proc.poll() is not None:
-                logger.warning(f"localhost.run OpenSSH tunnel process exited (code {proc.returncode})")
-                break
-            if not line:
-                time.sleep(0.1)
+        lhr_patterns = [
+            r"https://[a-zA-Z0-9\-]+\.lhr\.life",
+            r"https://[a-zA-Z0-9\-]+\.app\.lhr\.life",
+            r"https://[a-zA-Z0-9\-]+\.lhr\.pro",
+            r"https://[a-zA-Z0-9\-]+\.lhrtunnel\.com",
+        ]
+        url = _ssh_read_url(proc, lhr_patterns, timeout_sec=45.0)
+        if url:
+            logger.info(f"SUCCESS: Antivirus-Safe OpenSSH Tunnel active: {url}")
+            threading.Thread(target=_drain_stdout, args=(proc.stdout,), daemon=True).start()
+            return url
+        else:
+            logger.warning("localhost.run did not return a usable URL within 45s.")
+            try:
+                proc.terminate()
+            except Exception:
+                pass
     except Exception as e:
         logger.warning(f"localhost.run OpenSSH tunnel error: {e}")
 
@@ -391,29 +448,18 @@ def start_ssh_tunnel(port: int = 8001) -> Optional[str]:
         )
         _ssh_process = proc
 
-        start = time.time()
-        while time.time() - start < 30:
-            if proc.stdout and proc.stdout.readable():
-                line = proc.stdout.readline()
-            else:
-                time.sleep(0.3)
-                continue
-            if line:
-                line = line.strip()
-                logger.debug(f"[serveo] {line}")
-                match = re.search(r"https://[a-zA-Z0-9.-]+\.serveo(?:usercontent)?\.com", line)
-                if not match and "https://" in line and "serveo" in line:
-                    match = re.search(r"https://[^\s\"']+", line)
-                if match:
-                    url = match.group(0).rstrip("/.,")
-                    logger.info(f"SUCCESS: Serveo OpenSSH Tunnel active: {url}")
-                    threading.Thread(target=_drain_stdout, args=(proc.stdout,), daemon=True).start()
-                    return url
-            if proc.poll() is not None:
-                logger.warning(f"Serveo OpenSSH tunnel process exited (code {proc.returncode})")
-                break
-            if not line:
-                time.sleep(0.1)
+        serveo_patterns = [r"https://[a-zA-Z0-9\-]+\.serveo(?:usercontent)?\.com"]
+        url = _ssh_read_url(proc, serveo_patterns, timeout_sec=30.0)
+        if url:
+            logger.info(f"SUCCESS: Serveo OpenSSH Tunnel active: {url}")
+            threading.Thread(target=_drain_stdout, args=(proc.stdout,), daemon=True).start()
+            return url
+        else:
+            logger.warning("serveo.net did not return a usable URL within 30s.")
+            try:
+                proc.terminate()
+            except Exception:
+                pass
     except Exception as e:
         logger.warning(f"Serveo OpenSSH tunnel error: {e}")
 
