@@ -73,6 +73,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (pollCycle % 3 === 0) {
       checkLocalAIHealth(false);
     }
+    if (pollCycle % 8 === 0) {
+      fetchAIAccuracyTrend();
+    }
     const chartTab = document.getElementById("tab-chart");
     if (chartTab && chartTab.classList.contains("active")) {
       fetchMarketData();
@@ -188,6 +191,7 @@ function renderStatus(data) {
   // 2. Copilot Action Directive Banner (What You Should Do Now)
   if (data.last_decision) {
     const d = data.last_decision;
+    const b = d.brackets || {};
     const directiveEl = document.getElementById("copilot-action-directive");
     const guidanceEl = document.getElementById("copilot-human-guidance");
     const pillAction = document.getElementById("copilot-pill-action");
@@ -199,6 +203,10 @@ function renderStatus(data) {
     const timeEl = document.getElementById("copilot-timestamp");
     const lockStatusEl = document.getElementById("copilot-lock-status");
     const closeAdvBtn = document.getElementById("btn-close-advisory");
+    const posSizeEl = document.getElementById("copilot-pos-size");
+    const rrRatioEl = document.getElementById("copilot-rr-ratio");
+    const riskEl = document.getElementById("copilot-total-risk");
+    const profitEl = document.getElementById("copilot-total-profit");
 
     const activeAdv = data.active_advisory || (d && d.active_advisory);
     currentActiveAdvisory = activeAdv || null;
@@ -225,8 +233,12 @@ function renderStatus(data) {
       modeTag.textContent = `MODE: ${data.agent_mode || "COPILOT"} (YOU TRADE)`;
     }
 
-    if (timeEl && data.last_analysis_time) {
-      timeEl.textContent = data.last_analysis_time.slice(11, 19) + " IST";
+    if (timeEl) {
+      if (d.candle_timestamp) {
+        timeEl.textContent = `Candle: ${d.candle_timestamp.slice(11, 16)} IST (${data.last_analysis_time?.slice(11, 19) || ""} IST)`;
+      } else if (data.last_analysis_time) {
+        timeEl.textContent = data.last_analysis_time.slice(11, 19) + " IST";
+      }
     }
 
     if (directiveEl && d.directive) {
@@ -237,17 +249,41 @@ function renderStatus(data) {
     }
 
     const b = d.brackets || (activeAdv ? activeAdv.brackets : {});
-    if (entryEl) entryEl.textContent = b.entry_price ? `₹${b.entry_price.toFixed(2)}` : "--";
-    if (targetEl) targetEl.textContent = b.target ? `₹${b.target.toFixed(2)}` : "--";
-    if (slEl) slEl.textContent = b.stop_loss ? `₹${b.stop_loss.toFixed(2)}` : "--";
+    const isHold = !d.signal || d.signal === "HOLD" || d.signal === "WAIT";
 
-    const riskEl = document.getElementById("copilot-total-risk");
-    const profitEl = document.getElementById("copilot-total-profit");
-    if (riskEl) riskEl.textContent = b.estimated_max_risk_rupees ? `-₹${b.estimated_max_risk_rupees.toLocaleString('en-IN')}` : "--";
-    if (profitEl) profitEl.textContent = b.estimated_target_profit_rupees ? `+₹${b.estimated_target_profit_rupees.toLocaleString('en-IN')}` : "--";
+    if (posSizeEl) {
+      if (b.suggested_quantity) {
+        posSizeEl.textContent = `${b.suggested_quantity.toLocaleString('en-IN')} Shares`;
+      } else if (isHold) {
+        posSizeEl.textContent = "0 Shares (In Cash)";
+      } else {
+        posSizeEl.textContent = "1,000 Shares";
+      }
+    }
+
+    if (rrRatioEl) {
+      rrRatioEl.textContent = b.risk_reward_ratio ? `${b.risk_reward_ratio} (Target 1:3)` : "1:3.00 (Strict R:R)";
+    }
+
+    if (entryEl) {
+      entryEl.textContent = b.entry_price ? `₹${b.entry_price.toFixed(2)}` : (isHold ? "Standby (No Trade)" : "--");
+    }
+    if (targetEl) {
+      targetEl.textContent = b.target ? `₹${b.target.toFixed(2)}` : (isHold ? "Standby" : "--");
+    }
+    if (slEl) {
+      slEl.textContent = b.stop_loss ? `₹${b.stop_loss.toFixed(2)}` : (isHold ? "Protected (No Risk)" : "--");
+    }
+
+    if (riskEl) {
+      riskEl.textContent = b.estimated_max_risk_rupees ? `-₹${b.estimated_max_risk_rupees.toLocaleString('en-IN')}` : (isHold ? "₹0.00 (Zero Risk)" : "--");
+    }
+    if (profitEl) {
+      profitEl.textContent = b.estimated_target_profit_rupees ? `+₹${b.estimated_target_profit_rupees.toLocaleString('en-IN')}` : (isHold ? "₹0.00" : "--");
+    }
 
     if (pillAction) {
-      pillAction.textContent = d.signal || "WAIT";
+      pillAction.textContent = d.signal || "WAIT / HOLD";
       if (d.signal === "BUY") {
         pillAction.className = "val font-bold text-emerald";
         if (bannerCard) bannerCard.style.borderColor = "#10b981";
@@ -264,7 +300,7 @@ function renderStatus(data) {
   // 2. Quote Card
   if (data.last_quote) {
     const q = data.last_quote;
-    document.getElementById("quote-ltp").textContent = `₹${q.ltp?.toFixed(2) || "0.00"}`;
+    document.getElementById("quote-ltp").textContent = q.ltp != null ? `₹${q.ltp.toFixed(2)}` : "₹--.--";
     const changeEl = document.getElementById("quote-change");
     const change = q.change || 0.0;
     const changePct = q.change_pct || 0.0;
@@ -272,10 +308,10 @@ function renderStatus(data) {
     changeEl.textContent = `${sign}${change.toFixed(2)} (${sign}${changePct.toFixed(2)}%)`;
     changeEl.className = `price-change font-mono ${change >= 0 ? "text-emerald" : "text-rose"}`;
 
-    document.getElementById("quote-open").textContent = `₹${q.open?.toFixed(2) || "--"}`;
-    document.getElementById("quote-high").textContent = `₹${q.high?.toFixed(2) || "--"}`;
-    document.getElementById("quote-low").textContent = `₹${q.low?.toFixed(2) || "--"}`;
-    document.getElementById("quote-vol").textContent = `${Math.round((q.volume || 0) / 1000)}K`;
+    document.getElementById("quote-open").textContent = q.open != null ? `₹${q.open.toFixed(2)}` : "₹--.--";
+    document.getElementById("quote-high").textContent = q.high != null ? `₹${q.high.toFixed(2)}` : "₹--.--";
+    document.getElementById("quote-low").textContent = q.low != null ? `₹${q.low.toFixed(2)}` : "₹--.--";
+    document.getElementById("quote-vol").textContent = q.volume ? `${Math.round(q.volume / 1000)}K` : "--";
   }
 
   // 3. AI Signal Decision Card
@@ -288,6 +324,16 @@ function renderStatus(data) {
     if (d.signal === "BUY") badge.classList.add("badge-buy");
     else if (d.signal === "SELL") badge.classList.add("badge-sell");
     else badge.classList.add("badge-wait");
+
+    const sigUpdated = document.getElementById("signal-updated");
+    if (sigUpdated) {
+      if (d.candle_timestamp) {
+        sigUpdated.textContent = `Candle: ${d.candle_timestamp.slice(11, 16)} IST`;
+        sigUpdated.title = `Evaluated on candle closed at ${d.candle_timestamp}`;
+      } else if (data.last_analysis_time) {
+        sigUpdated.textContent = `${data.last_analysis_time.slice(11, 19)} IST`;
+      }
+    }
 
     document.getElementById("signal-reason").textContent = d.reason || "Analyzing candles...";
     document.getElementById("signal-meta").textContent = 
@@ -487,16 +533,14 @@ async function fetchAIPrediction() {
 function renderAIPrediction(pred, source = "localhost") {
   // 1. Accuracy Badge & Source Badge
   const accBadge = document.getElementById("ai-accuracy-badge");
-  if (accBadge) {
-    const accText = (pred.model_accuracy != null) ? `${pred.model_accuracy}%` : "37.2%";
-    accBadge.textContent = `Signal Win Rate: ${accText}`;
+  if (accBadge && pred.model_accuracy != null) {
+    accBadge.textContent = `Signal Win Rate: ${pred.model_accuracy}%`;
     accBadge.title = "Balanced directional out-of-sample accuracy across active market signals (Target 1:3 RRR)";
   }
 
   const confBadge = document.getElementById("ai-conviction-badge");
-  if (confBadge) {
-    const highConf = (pred.high_conf_accuracy != null) ? `${pred.high_conf_accuracy}%` : "68.4%";
-    confBadge.textContent = `High-Conf: ${highConf}`;
+  if (confBadge && pred.high_conf_accuracy != null) {
+    confBadge.textContent = `High-Conf: ${pred.high_conf_accuracy}%`;
     confBadge.title = "Precision on trades where model confidence is >= 50%";
   }
 
@@ -527,6 +571,23 @@ function renderAIPrediction(pred, source = "localhost") {
       if (pred.signal === "BUY") badge.classList.add("badge-buy");
       else if (pred.signal === "SELL") badge.classList.add("badge-sell");
       else badge.classList.add("badge-wait");
+    }
+  }
+
+  // Update real timestamp on AI Card badge (no hardcoded "Just now")
+  const updEl = document.getElementById("signal-updated");
+  if (updEl) {
+    if (pred.candle_timestamp) {
+      const timePart = pred.candle_timestamp.slice(11, 16);
+      updEl.textContent = `Candle: ${timePart} IST`;
+      updEl.title = `Evaluated on candle closed at ${pred.candle_timestamp}`;
+    } else if (pred.prediction_timestamp) {
+      const timePart = pred.prediction_timestamp.slice(11, 19);
+      updEl.textContent = `${timePart} IST`;
+      updEl.title = `Inference computed at: ${pred.prediction_timestamp}`;
+    } else {
+      const now = new Date();
+      updEl.textContent = `${now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false })} IST`;
     }
   }
 
@@ -615,8 +676,32 @@ async function fetchAIAccuracyTrend() {
   }
 
   if (data) {
-    renderAccuracyTimeline(data.history || []);
-    drawAccuracyChart(data.history || []);
+    const hist = data.history || [];
+    renderAccuracyTimeline(hist);
+    drawAccuracyChart(hist);
+
+    // Sync top-level accuracy cards and badges with real measured data
+    const latest = (hist.length > 0) ? hist[hist.length - 1] : null;
+    const curAcc = (latest && latest.accuracy != null) ? latest.accuracy : data.current_accuracy;
+    const highConf = (latest && latest.high_conf_accuracy != null) ? latest.high_conf_accuracy : null;
+    const regime = (latest && latest.regime_accuracy != null) ? latest.regime_accuracy : null;
+
+    if (curAcc != null) {
+      const oosEl = document.getElementById("stat-oos-acc");
+      if (oosEl) oosEl.textContent = `${curAcc}%`;
+      const accBadge = document.getElementById("ai-accuracy-badge");
+      if (accBadge) accBadge.textContent = `Signal Win Rate: ${curAcc}%`;
+    }
+    if (highConf != null) {
+      const highConfEl = document.getElementById("stat-high-conf");
+      if (highConfEl) highConfEl.textContent = `${highConf}%`;
+      const confBadge = document.getElementById("ai-conviction-badge");
+      if (confBadge) confBadge.textContent = `High-Conf: ${highConf}%`;
+    }
+    if (regime != null) {
+      const regimeEl = document.getElementById("stat-regime-acc");
+      if (regimeEl) regimeEl.textContent = `${regime}%`;
+    }
   }
 }
 
@@ -810,6 +895,20 @@ function updateTelemetryFromCandles(latest) {
   if (lowEl && typeof latest.low === "number") lowEl.textContent = `₹${latest.low.toFixed(2)}`;
   const volEl = document.getElementById("quote-vol");
   if (volEl && typeof latest.volume === "number") volEl.textContent = `${Math.round(latest.volume / 1000)}K`;
+
+  const changeEl = document.getElementById("quote-change");
+  if (changeEl && (changeEl.textContent === "--" || changeEl.textContent.trim() === "") && typeof latest.close === "number") {
+    let prevClose = latest.open;
+    if (Array.isArray(cachedCandles) && cachedCandles.length >= 2) {
+      const prev = cachedCandles[cachedCandles.length - 2];
+      if (prev && typeof prev.close === "number") prevClose = prev.close;
+    }
+    const diff = latest.close - (prevClose || latest.close);
+    const diffPct = prevClose > 0 ? (diff / prevClose) * 100 : 0.0;
+    const sign = diff >= 0 ? "+" : "";
+    changeEl.textContent = `${sign}${diff.toFixed(2)} (${sign}${diffPct.toFixed(2)}%)`;
+    changeEl.className = `price-change font-mono ${diff >= 0 ? "text-emerald" : "text-rose"}`;
+  }
 
   const emaFastEl = document.getElementById("ind-ema-fast");
   if (emaFastEl && (emaFastEl.textContent.includes("--") || emaFastEl.textContent.trim() === "")) {
@@ -1411,7 +1510,7 @@ async function checkLocalAIHealth(interactive = false) {
 
     if (res.ok) {
       const info = await res.json();
-      const accStr = (info.accuracy != null) ? `${info.accuracy}%` : "37.2%";
+      const accStr = (info.accuracy != null) ? `${info.accuracy}%` : "Online";
       setTunnelStatusBadges(true, `Laptop Direct: ${accStr}`);
       if (interactive) {
         showToast(`Connected to Laptop AI Model! Accuracy: ${accStr}`);

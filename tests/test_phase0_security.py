@@ -334,3 +334,49 @@ def test_cloudflare_tunnel_handles_antivirus_quarantine(monkeypatch):
     assert url is None
 
 
+# =====================================================================
+# 11. NO HARDCODED METRICS & ACCURATE TIMESTAMPS
+# =====================================================================
+
+def test_model_no_fabricated_fallbacks(tmp_path):
+    """Verify EternalAIModel defaults to None, not fabricated 68.4% / 90.7%."""
+    from ai.model import EternalAIModel
+    import joblib
+
+    empty_model_path = tmp_path / "test_model.joblib"
+    joblib.dump({"model": None, "features": [], "accuracy": 35.0}, empty_model_path)
+
+    m = EternalAIModel(model_path=empty_model_path)
+    assert m.last_accuracy == 35.0
+    assert m.high_conf_accuracy is None, "high_conf_accuracy must not default to hardcoded 68.4"
+    assert m.regime_accuracy is None, "regime_accuracy must not default to hardcoded 90.7"
+
+
+def test_predict_includes_genuine_timestamps():
+    """Verify prediction includes genuine candle_timestamp and prediction_timestamp."""
+    from ai.model import ai_model
+    import pandas as pd
+    import numpy as np
+
+    if ai_model.model is None:
+        pytest.skip("AI model is not trained yet")
+
+    # Generate small sample DataFrame with DatetimeIndex
+    dates = pd.date_range("2026-11-05 09:15", periods=50, freq="5min", tz="Asia/Kolkata")
+    df = pd.DataFrame({
+        "open": np.linspace(350, 355, 50),
+        "high": np.linspace(351, 356, 50),
+        "low": np.linspace(349, 354, 50),
+        "close": np.linspace(350.5, 355.5, 50),
+        "volume": [1000] * 50
+    }, index=dates)
+
+    pred = ai_model.predict(df)
+    assert "candle_timestamp" in pred
+    assert pred["candle_timestamp"] is not None
+    assert "2026-11-05" in pred["candle_timestamp"]
+    assert "prediction_timestamp" in pred
+    assert pred["prediction_timestamp"] is not None
+
+
+
