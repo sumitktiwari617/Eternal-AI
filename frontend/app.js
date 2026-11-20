@@ -191,7 +191,6 @@ function renderStatus(data) {
   // 2. Copilot Action Directive Banner (What You Should Do Now)
   if (data.last_decision) {
     const d = data.last_decision;
-    const b = d.brackets || {};
     const directiveEl = document.getElementById("copilot-action-directive");
     const guidanceEl = document.getElementById("copilot-human-guidance");
     const pillAction = document.getElementById("copilot-pill-action");
